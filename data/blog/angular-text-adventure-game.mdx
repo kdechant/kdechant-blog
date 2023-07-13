@@ -1,0 +1,133 @@
+---
+title: 'Eamon Remastered: Rewriting a Text Adventure Game in Angular'
+date: 2017-09-30T12:00:00Z
+lastmod: '2017-09-30'
+tags: ['angular', 'retro-gaming', 'rpg', 'web-dev']
+draft: false
+images: '/static/images/blog/er-welcome.jpg'
+summary: 'The Apple II is long dead, and playing the original version of the text adventure game Eamon now requires an emulator. What if I could rewrite it for modern computers? A programming adventure using Django and Angular.'
+---
+
+Back in the 1980s, I started playing a series of text adventure games for the Apple II called the Wonderful World of Eamon. It's a mix of an interactive fiction game like Colossal Cave Adventure and a computerized role-playing game. Eamon is unique in that you can create a character in the "Main Hall" and go on dozens of different self-contained quests by different authors, building up better stats and collecting better items and gold. So, if you like interactive fiction and also liked slaying orcs, battling pirates, and occasionally going head-to-head with the likes of Darth Vader, it's a fun time.
+
+But the Apple II is long dead, and playing the original Eamon now requires an emulator. Plus, my monitor is quite a bit larger than the 280x192 resolution of the Apple II. I should be able to see more than 40 columns of text.
+
+What if I could rewrite Eamon for modern computers? Specifically, how could I make it run in a web browser?
+
+Why do this? First, I like the idea of preserving some of our "heirloom software" for future generations. Second, I know quite a few people who still like and play text adventure games. Third, the project gave me a chance to experiment with some new web tech.
+
+### First, some history
+
+#### Classic Eamon
+
+The first version of The Wonderful World of Eamon, consisting of the Main Hall and the first adventure, the Beginner's Cave, was written around 1979–80 by Donald Brown, who also authored some of the earliest adventures. I'll call this version "Classic Eamon" from here on for clarity.
+
+<Figure
+  src="/static/images/uploads/classic-welcome.png"
+  align="right"
+  alt="Screenshot of the AppleWin emulator"
+  caption="The intro screen from Classic Eamon, in the AppleWin emulator"
+/>
+
+The game engine was written in Applesoft BASIC. The game and player data was stored in a set of Apple II "text" files, which were basically flat-file, fixed-record-length databases.
+
+Over the years, many new authors contributed adventures, and many new features were added to the game engine. Further, the Apple II didn't have a lot of RAM, and authors would frequently rewrite parts of the game engine to work around memory limits.
+
+Classic Eamon was also an early example of non-commercial software. There weren't such things as open-source licenses in those days, but the text at the beginning of the Main Program source code said "Non-commercial distribution encouraged."
+
+#### Eamon Deluxe
+
+In the 1990s, Eamon author Frank Black ported Eamon to the PC and called the new port Eamon Deluxe. Frank converted the engine to Microsoft BASIC and added a few new features to the engine, such as an enhanced Main Hall and color text. He generally kept the same program logic and a flat-file database structure similar to the original.
+
+Though it's an upgrade from the Apple II version, Eamon Deluxe still requires an emulator to play, and still has graphics limitations typical of DOS computers.
+
+Frank ported the entire game logic and dozens of adventures to Eamon Deluxe. For this reason, I decided to make his work be the basis of my new version.
+
+### Enter "Eamon Remastered"
+
+If I was going to rewrite Eamon for the web, how exactly should I do it?
+
+I would, of course, want to make it as easy as possible for people to play, so it should be possible to run it in a web browser. So I decided on doing a full web conversion, rewriting the old BASIC game engine to run in a browser.
+
+<Figure
+  src="/static/images/uploads/er-welcome.jpg"
+  align="left"
+  alt="Screenshot of Eamon Remastered"
+  caption="The Eamon Remastered welcome screen"
+/>
+
+Also, to lower the barriers for getting started, I decided to take inspiration from games like<span> </span>[BrowserQuest](http://browserquest.mozilla.org/), where you can just load the page and start playing. No account creation or login is required. Just name your player and go. To make this work, my new version of Eamon would need to store some player data directly in the browser.
+
+Classic Eamon included a "Dungeon Designer" utility disk which allowed adventure designers to write their own adventures. It was basically a database front-end for editing the rooms, objects ("artifacts" in Eamon jargon) and "monsters" (including NPCs) in the adventure. You could build a complete adventure just with the Designer, and even implement a few special effects like secret doors. But you needed to write some code to do anything more advanced. To give Eamon Remastered a similar functionality, I would need to design an interface for editing adventures and a simple developer experience for writing special effects code.
+
+### Choosing a Programming Language
+
+If you want to make it easy for other people to design adventures and contribute code, you need to write the game engine in a popular language.
+
+Back in the 1980s, BASIC was the language the most programmers knew. It came with every Apple II, didn't require a compiler, and it was easy to get started.<span> </span>`10 PRINT "HELLO WORLD"`<span> </span>and so on.
+
+Fast-forward to 2015, and BASIC is mostly obsolete. What language do most programmers know instead? JavaScript!
+
+Plus, building Eamon Remastered in JavaScript means that the entire game engine can run within the browser. This provides the fastest performance, as there is no round-trip to the server to process each command.
+
+I ended up deciding to use Angular 2 to build the game engine. It provides a lot of the features I need out of the box, like interacting with the user and querying data from an API. Plus, TypeScript lets me use a lot of the modern ES6 and ES7 features without waiting for browsers to support them. Eamon makes extensive use of concepts like class-based inheritance and rocket functions, which TypeScript supports.
+
+Angular needs a back-end API to serve data about the adventure and the player. For this purpose, I chose Django, because:
+
+1.  The excellent Django Rest Framework provides a no-fuss REST API
+2.  The built-in Django admin site would provide a quick-and-simple way to edit the adventure data and build a new adventure, so I wouldn't have to write my own Dungeon Designer program
+3.  I like programming in Python
+
+### Core vs. custom code
+
+One of the reasons I was excited to remaster Eamon was that it was a software architecture challenge. The original version was fun, but it was a "big ball of mud" in terms of architecture. All the BASIC code was in one single file, the Main Program, with hundreds of GOTO statements. Every adventure had its own complete copy of the Main Program, and in order to add special effects, an adventure designer had to alter its code. This made sense at the time, but it violates the "don't hack core" mantra of modern software development.
+
+<Figure
+  src="/static/images/uploads/classic-mk.png"
+  align="right"
+  alt="Screenshot of the AppleWin emulator"
+  caption="A scene from the Magic Kingdom adventure in Classic Eamon, in the AppleWin emulator"
+/>
+
+Also, the database predated modern RDBMSes, instead consisting of a confusing flat-file structure with fixed-length records. This meant there was a lot of code required just to read the data from these files at the start of an adventure, and it required custom programming to edit the data.
+
+So, what to do about this?
+
+I decided that the Eamon Remastered would have only one set of core code, which would be shared by all the adventures. This would contain features like moving to different rooms, picking up objects, finding secret doors, combat logic, and so on. Each adventure would be able to extend the base functionality and add special effects with a combination of two systems:
+
+Event handlers - These are small functions which allow changes to the usual game flow, such as triggering a special effect when a player enters a room, casts a spell, or picks up an object.
+
+Custom commands - These are special adventuring "verbs" that can be added to the core set of commands. Examples could be to PLAY a musical instrument or DIG a hole, which are commands that are only available in some adventures.
+
+### The finished product - Eamon Remastered!
+
+<Figure
+  src="/static/images/uploads/er-mk.jpg"
+  align="right"
+  alt="Screenshot of Eamon Remastered"
+  caption="A scene from the Magic Kingdom adventure in Eamon Remastered"
+/>
+
+You can try Eamon Remastered yourself at the official website, eamon-remastered.com. It takes only a few minutes to get started playing, and you can explore the world of Eamon from the comfort of your web browser.
+
+[**Play Eamon Remastered Now**](https://eamon-remastered.com/)**!**
+
+Features include:
+
+*   Create a new character in minutes
+*   Buy weapons and spells in the Main Hall
+*   Go on an adventure (try the Beginner's Cave or Beginner's Forest first!)
+*   As of this writing, Eamon Remastered has 16 separate adventures, 15 of which are ports of Classic Eamon or Eamon Deluxe adventures
+*   Save your player directly in your web browser, without having to sign up for an account. Come back any time with the same browser to pick up where you left off!
+
+### The Code
+
+Updating heirloom software isn't just about the game. Part of the product is the code itself. It should be new and fresh, while keeping the gameplay as similar as possible to the original.
+
+This post is the first in a series about the "making of" Eamon Remastered. I'll show you some of my design decisions and how the whole thing is put together. Plus, plenty of Angular code samples!
+
+In the meantime, [the source code is also available on Github](https://github.com/kdechant/eamon).
+
+And, retrocomputing enthusiasts might also like<span> </span>[this project to remake Colossal Cave Adventure in modern C](http://www.linuxjournal.com/content/heirloom-software-past-adventure).
+
+Next post: [The Command Parser](/blog/angular-text-adventure-part-2-the-command-parser/)

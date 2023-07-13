@@ -1,0 +1,520 @@
+---
+title: 'Angular text adventure, part 3: The game data models'
+date: 2018-02-18T12:00:00Z
+lastmod: '2018-02-18'
+tags: ['angular', 'retro-gaming', 'rpg', 'web-dev']
+draft: false
+summary: "A look at a few of the game's data structures, and how Angular's HttpClient can make API calls to a Django Rest Framework API in a decoupled application."
+---
+
+This is part 3 of the series of making Eamon Remastered, a text adventure game written in Angular. Here, we will look at a few of the game's data structures, and see how Angular loads the data from the database.
+
+### What's in an adventure?
+
+Eamon adventures contain a few data models:
+
+* The adventure itself, containing the name, ID number, intro text, etc.
+* Rooms - any location the player can visit in the game, e.g., "Cave Entrance", "North-south tunnel", or "Abandoned Temple"
+* Room Exits - the connections from one room to another. Defines which way a player can move from a room, and which door needs to be opened to get there.
+* Artifacts - objects you can interact with, including treasures, weapons, chests, doors, etc.
+* Effects - simple strings of text that are stored in the database, displayed by the program to create special effects
+* Monsters - any animate being, including the player, NPCs, orcs, dragons, robots, you name it.
+
+### Modeling this in TypeScript
+
+In the Classic version of Eamon for the Apple II, each of these models was represented by few simple arrays in BASIC. BASIC arrays were homogenous; a given array could contain only strings or only numbers. Thus, there had to be several arrays to make up the data: one for room names, one for other room data including exits, one for monster names, and one for monster stats like hardiness, agility, location, etc.
+
+Modern languages give us much more flexibilty. The adventure data for Eamon fits perfectly into object-oriented programming. Instead of array soup, Eamon Remastered uses a class for each of the data models, and provides handy methods for interacting with them.
+
+The basic class in Eamon Remastered is called Game. It's a singleton that contains the high-level game logic: loading the data, ticking the game clock, and handling the game exit logic. It's also a container for all the other objects, like Rooms, Artifacts, Effects, and Monsters.
+
+```
+import {RoomRepository} from "../repositories/room.repo";
+import {ArtifactRepository} from "../repositories/artifact.repo";
+import {EffectRepository} from "../repositories/effect.repo";
+import {MonsterRepository} from "../repositories/monster.repo";
+import {HintRepository} from "../repositories/hint.repo";
+
+/**
+ * Game Data class. Contains game state and data like rooms, artifacts, monsters.
+ */
+export class Game {
+
+  /**
+   * @var {number} The current adventure's id in the database
+   */
+  id: number;
+
+  /**
+   * @var {string} The current adventure's name
+   */
+  name: string;
+
+  /**
+   * @var {string} The current adventure's description
+   */
+  description: string;
+
+  /**
+   * A container for all the Room objects
+   */
+  rooms: RoomRepository;
+
+  /**
+   * A container for all the Artifact objects
+   */
+  artifacts: ArtifactRepository;
+
+  /**
+   * A container for all the Effect objects
+   */
+  effects: EffectRepository;
+
+  /**
+   * A container for all the Monster objects
+   */
+  monsters: MonsterRepository;
+
+  private static _instance: Game = new Game();
+
+  constructor() {
+    if (Game._instance) {
+      // Game is a singleton. Bypass the usual constructor.
+      throw new Error("Error: Instantiation failed: Use Game.getInstance() instead of new.");
+    }
+    Game._instance = this;
+  }
+
+  // this static method can be called from anywhere as Game.getInstance() to return the current Game object
+  public static getInstance(): Game {
+    return Game._instance;
+  }
+
+  /**
+   * Sets up data received from the GameLoaderService.
+   */
+  init(data) {
+    // .. more on this later ..
+  }
+
+  /**
+   * Starts the game, after the user clears the intro screen
+   */
+  public start() {
+    // ... logic for starting the game ...
+  }
+
+  /**
+   * Tick the game clock. Monster/artifact maintenance and things like changing
+   * torch fuel will happen here.
+   */
+  tick() {
+    // ... this logic omitted for brevity ...
+  }
+
+  /**
+   * Shows the room, artifact, and monster descriptions. Normally called right after tick() unless there
+   * was a command exception, in which case the tick is bypassed.
+   */
+  public endTurn(): void {
+    // ... this logic omitted for brevity ...
+  }
+
+  /**
+   * Handles successful game exit.
+   */
+  public exit() {
+    // ... this logic omitted for brevity ...
+  }
+}
+```
+
+Each data model additionally has two classes: a Repository and a Model. Angular doesn't give us an ORM like a server-side framework such as Django or Rails would. Instead, these are all represented as simple TypeScript classes. They're not even specific to Angular. If I ever decided to convert Eamon to React, I could keep these classes just as they are, and I'd only have to rewrite the user interface.
+
+The Repository class for each type is a container for all the individual objects of that type. It provides getter methods for the data, and handles data initialization.
+
+```
+import {Room} from "../models/room";
+import {Game} from "../models/game";
+
+/**
+ * Class RoomRepository.
+ * Storage class for all room data.
+ */
+export class RoomRepository {
+
+  /**
+   * An array of all the Room objects
+   */
+  rooms: Room[] = [];
+
+  constructor(room_data) {
+    for (let i of room_data) {
+      let r = new Room();
+      r.init(i);
+      this.rooms.push(r);
+    }
+  }
+
+  /**
+   * Gets a numbered room.
+   * @param {number} room_id
+   * @return Room
+   */
+  get(room_id: number) {
+    let r = this.rooms.find(x => x.id === room_id);
+    return r || null;
+  }
+}
+```
+
+The repository classes store all the current game data in memory. This might be a few hundred kilobytes in size, which was a lot for the Apple II and its limited RAM, but is insignificant for modern computers. Keeping everything in memory makes the game run very quickly, and prevents having to make additional API calls during game play.
+
+The Model class for each type represents a single entity. Each Room, Artifact, Effect, and Monster is an instance of one of these classes. The instance object keeps track of the stats for the entity, such as a monster's health, or in which room an artifact is located. The Model classes also provide additional methods, such as a way to check if a monster is friendly, a method for a monster to pick up an artifact, or a method for a chest or door to open.
+
+Here is a sample of the Artifacts model class:
+
+```
+import {GameObject} from "./game-object";
+import {Game} from "./game";
+import {Monster} from "./monster";
+import {CommandException} from "../utils/command.exception";
+import {ArtifactRepository} from "../repositories/artifact.repo";
+
+/**
+ * Artifact class. Represents all properties of a single artifact
+ */
+export class Artifact extends GameObject {
+
+  room_id: number; // if on the ground, which room
+  monster_id: number; // if in inventory, who is carrying it
+  container_id: number; // if inside a container, the artifact id of the container
+  key_id: number; // if a container or door, the artifact id of the key that opens it
+  weight: number;
+  value: number;
+  type: number;
+  is_open: boolean;
+  weapon_type: number;
+  weapon_odds: number;
+  dice: number;
+  sides: number;
+  is_wearable: boolean;
+  armor_type: number;
+  armor_class: number;
+
+  // game-state properties
+  contents: Artifact[] = [];  // the Artifact objects for the things inside a container
+  seen: boolean = false;
+  is_lit: boolean = false;
+  inventory_message: string = "";  // replaces the "lit" or "wearing" message if set
+  markings_index: number = 0; // counter used to keep track of the next marking to read
+  is_worn: boolean = false; // if the monster is wearing it
+  is_broken: boolean = false;  // for a doors/containers that has been smashed open
+  player_brought: boolean = false; // flag to indicate which items the player brought with them
+  has_been_opened: boolean = false; // for containers/doors, the "on open" effect will only show the first time you open it
+
+  /**
+   * Moves the artifact to a specific room.
+   */
+  public moveToRoom(room_id: number = null): void {
+    this.room_id = room_id || Game.getInstance().player.room_id;
+    this.container_id = null;
+  }
+
+  /**
+   * Determines whether an artifact is available to the player right now.
+   * Artifacts are available if the player is carrying them or if they are in the current room.
+   * @returns boolean
+   */
+  public isHere(): boolean {
+    return (this.room_id === Game.getInstance().player.room_id || this.monster_id === Monster.PLAYER);
+  }
+
+  /**
+   * Opens a door or container
+   */
+  public open() {
+    this.is_open = true;
+  }
+
+  // ... and a dozen more methods ...
+
+}
+```
+
+### Loading the game data
+
+The actual data for each adventure is stored in a MySQL database on the server. The back-end system uses [Django Rest Framework](http://www.django-rest-framework.org/) to expose a REST API which Angular can query. To get at the data, we will use the [Angular HTTPClient service](https://www.metaltoad.com/blog/angular-5-making-api-calls-httpclient-service), which provides a data stream wrapped in [RxJS Observables](http://reactivex.io/rxjs/manual/overview.html#observable).
+
+To connect to the API, Eamon contains a class called the GameLoaderService. We call this from the main Angular component, AdventureComponent:
+
+```
+import {Component, OnInit, ViewChild, ElementRef} from "@angular/core";
+import {GameLoaderService} from "../services/game-loader.service";
+import {Game} from "../models/game";
+
+@Component({
+  selector: "adventure",
+  templateUrl: "/static/core/templates/adventure.html",
+})
+export class AdventureComponent {
+
+  public game: Game;
+
+  constructor(private _gameLoaderService: GameLoaderService) { }
+
+  public ngOnInit(): void {
+    this.game = Game.getInstance();
+    this._gameLoaderService.setupGameData(this.game.demo).subscribe(
+      data => {
+        this.game.init(data);
+      }
+    );
+  }
+}
+```
+
+To maintain separation of concerns, the component class only knows how to interact with services and display templates. First, it subscribes to the Observable defined in the GameLoaderService. When that Observable emits the API data, a callback then passes the data directly into the Game object's init() method.
+
+The GameLoaderService class contains the mechanism for making the API calls:
+
+```
+import {Injectable} from "@angular/core";
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import Rx from 'rxjs/Rx';
+import {Observable} from 'rxjs/Observable';
+import {Game} from "../models/game";
+
+// game_id is passed in from the back-end and written in index.html
+declare var game_id: string;
+
+/**
+ * Game Loader service. Loads initial adventure, room, artifact, and monster data from the data source.
+ */
+@Injectable()
+export class GameLoaderService {
+
+  // http options used for making any writing API calls
+  private httpOptions: any;
+
+  constructor(private http: HttpClient, private _cookieService:CookieService) {
+    this.httpOptions = { headers: new HttpHeaders({ 'Content-Type': 'application/json' }) };
+  }
+
+  setupGameData(mock_player: boolean = false): Observable<Object> {
+
+    // the player ID is stored in the browser's local storage
+    let player_id = window.localStorage.getItem('player_id');
+
+    // load all the game data objects in parallel
+    return Rx.Observable.forkJoin(
+      this.http.get("/api/adventures/" + game_id),
+      this.http.get("/api/adventures/" + game_id + "/rooms"),
+      this.http.get("/api/adventures/" + game_id + "/artifacts"),
+      this.http.get("/api/adventures/" + game_id + "/effects"),
+      this.http.get("/api/adventures/" + game_id + "/monsters"),
+      this.http.get("/api/players/" + player_id + '.json?uuid=' + this.uuid;)
+    );
+  }
+}
+```
+
+There are several API calls that all must complete to load the game data successfully, so this service uses Observable.forkJoin() to call them in parallel. When all the API calls are complete, it returns the Observable object that contains the results of all the API calls. If any API call fails, the entire operation is canceled and the game fails to initialize.
+
+The variable `game_id` here determines which adventure the player is currently playing. This variable is written to the HTML source of the page when the page is loaded. We use `declare var game_id: string;` to indicate that this is passed in from outside the application. This helps the TypeScript compiler know to expect this variable to exist. Otherwise, it would throw compile-time errors if it assumed this variable is undefined.
+
+The variable `player_id` determines which player is currently active. Before going on an adventure, the player must load their adventurer from the central system called the "Main Hall". Code in the Main Hall sets the player ID in the browser's local storage, so the adventure code knows which player to load.
+
+The Game object contains the logic for loading this data into the various Repository objects:
+
+```
+export class Game {
+
+  // ... game properties here - omitted for brevity ...
+
+  /**
+   * Sets up data received from the GameLoaderService.
+   */
+  init(data) {
+
+    this.id = data[0].id;
+    this.name = data[0].name;
+    this.description = data[0].description;
+    this.intro_text = data[0].intro_text.split('---').map(Function.prototype.call, String.prototype.trim);
+    this.intro_index = 0;
+    this.intro_question = data[0].intro_question;
+    this.dead_body_id = data[0].dead_body_id;
+
+    this.rooms = new RoomRepository(data[1]);
+    this.artifacts = new ArtifactRepository(data[2]);
+    this.effects = new EffectRepository(data[3]);
+    this.monsters = new MonsterRepository(data[4]);
+
+    // the player is also a Monster, so add him/her to the repository
+    this.monsters.addPlayer(data[5]);
+
+    // ... here we run a few more setup steps, then start the game ...
+
+  }
+
+  // ... more methods here ...
+}
+```
+
+Remember from above that the init() method receives the data which was emitted by the RxJS Observable. When we use forkJoin(), this is a JavaScript array, containing the full results from each separate API call as one of its indices. They will contain:
+
+* data[0] - the first API endpoint's data (the adventure)
+* data[1] - the second API endpoint's data (the rooms)
+* ...
+* data[5] - the last API endpoint's data (the player)
+
+We then initialize a repository for the rooms, artifacts, effects, and monsters. The player in Eamon is just a special type of Monster, so the MonsterRepository class contains one additional method called addPlayer() to handle the data from the last API call. This includes creating Artifact objects for any equipment (weapons, armor) the player brought with them from previous adventures. This is how you can use that light saber you stole from Darth Vader to fight that nasty seven-headed hydra in your next adventure.
+
+#### Why call the Service from the Component instead of the Game object?
+
+It might seem like extra work to call the GameLoaderService from the Angular component, instead of directly from the Game class. However, Game is a simple TypeScript class, and it's unaware of Angular or its Component/Service architecture. Trying to call services from the model classes is difficult in Angular. Better leave that to the components.
+
+### The Back-end Data Source
+
+In addition to the Angular app, Eamon uses Django to serve up the data to the API. This requires a second, parallel set of models, built using the Django ORM, and a set of View and Serializer classes provided by Django Rest Framework.
+
+Our Django models look like the following. For the full source, see [GitHub](https://github.com/kdechant/eamon/blob/master/adventure/models.py):
+
+[eamon/adventure/models.py](https://github.com/kdechant/eamon/blob/master/adventure/models.py):
+```python
+from django.db import models
+
+class Adventure(models.Model):
+    name = models.CharField(max_length=50)
+    description = models.TextField(default='', blank=True)
+    slug = models.SlugField(null=True)
+    # ... more properties ...
+
+class Room(models.Model):
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='rooms')
+    room_id = models.IntegerField(default=0) # The in-game room ID.
+    name = models.CharField(max_length=255)
+    description = models.TextField(max_length=1000)
+    # ... more properties ...
+
+class RoomExit(models.Model):
+    direction = models.CharField(max_length=2)
+    room_from = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='exits')
+    room_to = models.IntegerField(default=0)
+
+class Artifact(models.Model):
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='artifacts')
+    artifact_id = models.IntegerField(default=0) # The in-game artifact ID.
+    name = models.CharField(max_length=255)
+    value = models.IntegerField(default=0)
+    # ... more properties ...
+
+
+class Effect(models.Model):
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='effects')
+    effect_id = models.IntegerField(default=0) # The in-game effect ID.
+    text = models.TextField(max_length=65535)
+    # ... more properies ...
+
+class Monster(models.Model):
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='monsters')
+    monster_id = models.IntegerField(default=0) # The in-game monster ID.
+    name = models.CharField(max_length=255)
+    description = models.TextField(max_length=1000)
+    room_id = models.IntegerField(null=True, blank=True)
+    hardiness = models.IntegerField(default=12)
+    agility = models.IntegerField(default=12)
+    # ... more properties ...
+```
+
+In our Django views.py, we create several ViewSets, which are subclasses of a special type of view class provided by Django Rest Framework. These provide a set of the usual endpoints like GET, POST, PUT, and DELETE that you need to create CRUD operations with an API. Because the adventure loading part of the API is read-only, Eamon's API views extend the ReadOnlyModelViewSet class, which provides only the "list" (GET /api/adventures) and "retrieve" (GET /api/adventures/1) endpoints.
+
+[eamon/adventure/views.py](https://github.com/kdechant/eamon/blob/master/adventure/views.py):
+```
+from rest_framework import viewsets, filters, permissions, mixins, generics, status
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.shortcuts import render, get_object_or_404
+
+from . import serializers
+from .models import Adventure, Room, RoomExit, Artifact, Effect, Monster
+
+# ... some other, regular Django views here, not shown ...
+
+class AdventureViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Adventure.objects.filter(active=True)
+    serializer_class = serializers.AdventureSerializer
+
+    def get_queryset(self):
+        queryset = self.queryset
+        return queryset
+
+    def retrieve(self, request, pk=None):
+        queryset = self.queryset
+        adv = get_object_or_404(queryset, slug=pk)
+        serializer = serializers.AdventureSerializer(adv)
+        return Response(serializer.data)
+
+class RoomViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Room.objects.all()
+    serializer_class = serializers.RoomSerializer
+
+    def get_queryset(self):
+        adventure_id = self.kwargs['adventure_id']
+        return self.queryset.filter(adventure__slug=adventure_id)
+
+# ... Artifacts, Effects, and Monsters not shown here ...
+```
+
+Notice that each ViewSet class here defines a "querySet" and "serializer_class" property. These tell Django Rest Framework how to query the data for each model and serialize it to JSON. The Serializers are their own classes:
+
+[eamon/adventure/serializers.py](https://github.com/kdechant/eamon/blob/master/adventure/serializers.py}:
+```python
+from rest_framework import serializers
+from .models import Adventure, Author, Room, RoomExit, Artifact, Effect, Monster
+
+class AdventureSerializer(serializers.HyperlinkedModelSerializer, TaggitSerializer):
+
+    class Meta:
+        model = Adventure
+        fields = ('id', 'name', 'description', 'intro_question', 'slug')
+
+class RoomExitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoomExit
+        fields = ('direction', 'room_to', 'door_id', 'message')
+
+class RoomSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='room_id', read_only=True)   # maps 'room_id' field in the DB to 'id' property in the JSON
+    exits = RoomExitSerializer(many=True, read_only=True)  # serializes child model's data inside this model's data
+
+    class Meta:
+        model = Room
+        fields = ('id', 'name', 'description', 'exits')
+
+# ... Artifacts, Effects, and Monsters Serializers here, not shown ...
+```
+
+Notice here that the Rooms API returns the Room object with all its associated RoomExit objects. These are a one-to-many relationship in the database. Rather than having to call the API for all the rooms, then for the RoomExit objects associated with each Room, these are combined into a single API call. This requires two Serializer classes, one for the parent model (Room) and one for the child (RoomExit). Further, the child Serializer class must be declared before the parent, so that the parent's Serializer class definition can refer to the child's serializer.
+
+This way, in the API results, we get the following structure:
+
+```json
+[
+  'id': 1,
+  'name': 'Cave Entrance',
+  'description': 'You are at the entrance to a cave. You may go south into the cave or north into the woods.',
+  'exits': [
+    {
+      'direction': 'south',
+      'room_to': 2
+    },
+    {
+      'direction': 'north',
+      'room_to': 3
+    },
+  ]
+]
+```
+
+Notice also that the RoomSerializer contains a customized field mapping using `id = serializers.IntegerField(source='room_id', read_only=True)`. The Room table in the database contains two ID columns: The "id" column is used internally by Django and MySQL as the record's primary key. However, the Room ID as used in the adventure (e.g., Room 1 is the player start point, Room 10 is the dragon's lair, etc.) is stored in the database in a column called "room_id". Angular only knows about the in-adventure Room ID, so we need to map "id" in the serialized data to contain the value of the "room_id" property from the Django model.

@@ -1,0 +1,13 @@
+figure.figure-left {
+  float: left;
+}
+figure.figure-right {
+  float: right;
+  margin-right: -30px;
+}
+@media (min-width: 768px) {
+  figure {
+    margin: 10px 30px;
+    width: 450px;
+  }
+}

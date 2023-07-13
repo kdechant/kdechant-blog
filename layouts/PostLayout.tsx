@@ -1,5 +1,5 @@
 import { useState, ReactNode } from 'react'
-import { Comments } from 'pliny/comments'
+// import { Comments } from 'pliny/comments'
 import { CoreContent } from 'pliny/utils/contentlayer'
 import type { Blog, Authors } from 'contentlayer/generated'
 import Link from '@/components/Link'
@@ -95,25 +95,27 @@ export default function PostLayout({ content, authorDetails, next, prev, childre
               </dd>
             </dl>
             <div className="divide-y divide-gray-200 dark:divide-gray-700 xl:col-span-3 xl:row-span-2 xl:pb-0">
+              {/* BODY */}
               <div className="prose max-w-none pt-10 pb-8 dark:prose-dark">{children}</div>
-              <div className="pt-6 pb-6 text-sm text-gray-700 dark:text-gray-300">
-                <Link href={discussUrl(path)} rel="nofollow">
-                  Discuss on Twitter
-                </Link>
-                {` • `}
-                <Link href={editUrl(filePath)}>View on GitHub</Link>
-              </div>
-              {siteMetadata.comments && (
-                <div
-                  className="pt-6 pb-6 text-center text-gray-700 dark:text-gray-300"
-                  id="comment"
-                >
-                  {!loadComments && (
-                    <button onClick={() => setLoadComments(true)}>Load Comments</button>
-                  )}
-                  {loadComments && <Comments commentsConfig={siteMetadata.comments} slug={slug} />}
-                </div>
-              )}
+
+              {/*<div className="pt-6 pb-6 text-sm text-gray-700 dark:text-gray-300">*/}
+              {/*  <Link href={discussUrl(path)} rel="nofollow">*/}
+              {/*    Discuss on Twitter*/}
+              {/*  </Link>*/}
+              {/*  {` • `}*/}
+              {/*  <Link href={editUrl(filePath)}>View on GitHub</Link>*/}
+              {/*</div>*/}
+              {/*{siteMetadata.comments && (*/}
+              {/*  <div*/}
+              {/*    className="pt-6 pb-6 text-center text-gray-700 dark:text-gray-300"*/}
+              {/*    id="comment"*/}
+              {/*  >*/}
+              {/*    {!loadComments && (*/}
+              {/*      <button onClick={() => setLoadComments(true)}>Load Comments</button>*/}
+              {/*    )}*/}
+              {/*    {loadComments && <Comments commentsConfig={siteMetadata.comments} slug={slug} />}*/}
+              {/*  </div>*/}
+              {/*)}*/}
             </div>
             <footer>
               <div className="divide-gray-200 text-sm font-medium leading-5 dark:divide-gray-700 xl:col-start-1 xl:row-start-2 xl:divide-y">

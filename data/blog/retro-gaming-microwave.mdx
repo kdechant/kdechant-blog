@@ -1,0 +1,49 @@
+---
+title: 'Retro-gaming corner: Microwave by Cavalier Computers'
+date: 2017-11-18T12:00:00Z
+lastmod: '2017-11-18'
+tags: ['retro-gaming']
+draft: false
+images: '/static/images/blog/microwave-title-screen.png'
+summary: "An early Apple II maze game from 1982, Microwave was an addictive little game that was one of the first Apple II games to feature in-game music. It also contained one of the more amusing software bugs I've ever seen."
+---
+
+It was the early 1980s, and the PC gaming industry was young. Pac-Man style maze games, Space Invaders style shoot-em-ups, and early platformers were the rage in the arcades. It was only a matter of time before the games made it to home PCs like the Apple II.
+
+One of the early developers was a kid named [Jim Nitchals](http://www.gamedesignersremembered.com/jim-nitchals), who by the 1990s would be better known as one of the pioneers in the fight against email spam. With some friends, he created a company called Cavalier Computer. Cavalier put out a few arcade game clones for the Apple II. They also released a couple original games, including a space-themed maze game called Microwave.
+
+Microwave wasn't just a Pac-Man clone. Sure, it had the same basic maze mechanics. But the gameplay was different. Each level contained a set of items like hammers, wrenches, TVs, floppy disks, and so on. The hero, Teddy the Salvage Man, had to collect all the items while avoiding the four alien bad guys. When Teddy had collected everything, an exit tunnel would appear. To complete the level, Teddy had to reach the tunnel without being caught.
+
+<Figure
+  src="/static/images/uploads/microwave-lvl-2.png"
+  align="right"
+  alt="Screenshot of the second level, showing a green maze. At the left side of the maxe is some machinery labeled 'engine'."
+  caption="A screenshot of one of the mazes, before the player or aliens spawn"
+/>
+
+Teddy's only weapon was a microwave dish, which he could drop by pressing the joystick button. The dish shot microwave lasers that melted any aliens it touched, sending them back to their spawning site. Every level contained one charge for the microwave dish, though Teddy could use it as many times as he wanted per level until he ran out. Stockpiling the charges and saving them for the harder levels was a must if you wanted to get far.
+
+Teddy himself could walk through the microwave beam without dying, thanks to his space suit. But this wasn't unlimited. He had a "life support" stat which would descend from "Normal" to "Low" to "Critical" the longer he was in contact with the beam. If it got low enough, he would die.
+
+Speaking of progressing in the game, Microwave is a never-ending game. There are four mazes, which we'll call A, B, C, and D. They repeat in the pattern ABC ABC D ABC D ABC DD over and over again. The placement of the items is determined by an algorithm that allows an unlimited number of unique levels. It's the same in every game, but no two levels are identical.
+
+So, why am I writing about this 35 years after the game came out?
+
+Because Microwave had a major innovation, at least for the Apple II. It was one of the earliest games with in-game music. This was something that was hard to do on a 1-megahertz CPU, and it must have taken a bit of work to program it in there. What song was it? Well, it was the early '80s, so, naturally, it was an 8-bit rendition of the Mos Eisley Cantina Song from Star Wars.
+
+Microwave also had a particularly odd bug. When you complete level 9, you're supposed to go to level 10, right? Not so fast. The level after 9 shows "Level :" on the screen. The level after that is level 10. Sometimes the score could exhibit a similar error, where the ones digit would count up like `2048`, `2049`, `204:`, `204;`, `2050`. Huh?
+
+<Figure
+  src="/static/images/uploads/microwave-lvl-colon.png"
+  align="left"
+  alt="Screenshot of the tenth level of Microwave, showing a blue maze. The level number is a colon character instead of the numeral 10."
+  caption="A screenshot of the &quot;colon&quot; level. The math bug also appears in the player's power level and score."
+/>
+
+It was only when I made it to the later levels that it became obvious what was going on. Once you pass level 19, instead of 20 you get `1:`, then `1;`, `1<`, `1=`, `1>`, `1-`, and then reset back to 10.
+
+The notable thing here is that there are exactly 6 extraneous digits between 19 and 20. Sounds like the developers were having a tough time with their base-16 to base-10 conversions. I'm guessing that the characters `:;<=>-` appeared immediately after 9 in the game's font. It seems like they tried to correct it but didn't quite get it right.
+
+The reset from `1-` to `10` (instead of 20) indicates that the digits may have been rendered separately. Remember, this was probably all written in 6502 assembly language, where rendering things on the screen wasn't as straightforward as you would expect.
+
+Cavalier Computer is long gone, and Jim Nitchals sadly passed away in 1998. But the Apple II disk images for Microwave can still be found on the web somewhere, and it's playable in the AppleWin emulator if you want to try it for yourself. It's surprisingly addictive.

@@ -1,0 +1,115 @@
+---
+title: 'Yes, You Can Have a Nice Developer Experience on Windows!'
+date: 2017-12-11T12:00:00Z
+lastmod: '2017-12-11'
+tags: ['angular 2', 'angular 5', 'web-dev', 'animations']
+draft: false
+images: '/static/images/blog/pshazz.png'
+summary: "I have had a few people remark to me their opinion that it's just plain impossible to develop websites on Windows. Then, how have I been doing it for the past ten years?"
+---
+
+I have had a few people remark to me their opinion that it's just plain impossible to develop websites on Windows. Then, how have I been doing it for the past twenty years?
+
+But wait, you say. Powershell is way different from Bash, Windows doesn't come with a package manager, and all the tutorials out there talk about installing Cygwin. All these things are easy to overcome if you know how.
+
+This article explains what you can do with your development environment in native Windows. That means we won't be using Cygwin or the Windows Subsystem for Linux (as promising as it is.) This is for the .NET developer who wishes she could use Grep to search her code, or the Node.JS or React developer who wants to push to Git directly from Powershell without mucking around with the Git Bash prompt.
+
+### Windows 10 FTW!
+
+First of all, make sure you're running the latest release of Windows 10. Most of these tools will work on Windows 7 or 8 as well, but you'll miss out on some of the latest and greatest features of Powershell.
+
+The PowerShell team has been busy doing great things over the past few years, including adding many Bash-style keyboard shortcuts to PowerShell:
+
+* Much improved arrow scrolling through the command history
+* Ctrl-R for reverse history search
+* Ctrl-L to clear the screen
+
+### I'll have a Scoop of Chocolate!
+
+Once you're familiar with the newest features of PowerShell, it's time to get to know some package managers.
+
+You might see Scoop and Chocolatey and wonder which is best. The good news is that you don't have to choose! For my development environment, I use both of them side by side. Because they excel at different things.
+
+Generally speaking, I use [Chocolatey](https://chocolatey.org/) to install desktop applications and [Scoop](https://github.com/lukesampson/scoop) to install command-line developer tools and PowerShell add-ons.
+
+Go install both Chocolatey and Scoop, and try some of the following commands.
+
+To install some desktop applications with Chocolatey, open PowerShell as administrator and run commands such as the following:
+
+```
+choco install firefox
+choco install sourcetree
+choco install f.lux
+```
+
+Unlike Chocolatey, Scoop runs in user space, so you can run it without being Administrator. Here's how to install some command-line tools with Scoop:
+
+```
+# the 'nodejs-lts' package installs the latest LTS version of nodejs (e.g., 8.x)
+scoop install nodejs-lts
+
+# alternate: use 'scoop install nodejs' to get the latest stable version of nodejs (e.g., 9.x)
+
+# install some GNU apps and other useful CLI tools
+scoop install curl grep less nano
+```
+
+NodeJS can be installed with either Chocolatey or Scoop.  I find Scoop easier to deal with because it does a better job of linking the executables into my path.
+
+In fact, you can install most of the GNU tools you might be familiar with on *nix using Scoop! I use programs like Grep, Less, and others on Windows all the time.
+
+Scoop also gives you access to some PowerShell customizations, like Concfg for installing different PowerShell themes:
+
+```
+scoop install concfg
+concfg import solarized
+```
+
+<Figure
+  src="/static/images/blog/pshazz.png"
+  align="right"
+  alt="Screenshot of the Windows PowerShell using Pshazz to show Git branch in the command prompt"
+  caption="PowerShell shows my Git branch and status after installing Pshazz"
+/>
+
+There is also some nifty Git integration using a package called Pshazz, which shows your current branch and status in your PowerShell prompt:
+
+```
+scoop install pshazz
+```
+
+### Sudo on Windows
+
+If you're a Linux user, you're probably spoiled by the convenience of sudo for running commands with elevated privileges. The good news is, it's available for Windows, too!
+
+Remember how we had to open PowerShell as Administrator to use Chocolatey above? If we install Sudo with Scoop, now we don't have to.
+
+```
+scoop install sudo
+sudo choco update sourcetree
+```
+
+### Fuzzy file finding with FZF
+
+The open-source world is replete with tools for doing fuzzy finding of files and previous commands. One of the snazzy tools in this space is [FZF](https://github.com/junegunn/fzf), and it's available for Windows, too. (Unlike the other PowerShell tools, it's installed using Chocolatey, not Scoop.)
+
+```
+sudo choco install fzf
+fzf
+```
+
+Now type part of a file name and FZF will locate any files with names that match. It's very useful for people like me who can never remember where they put things.
+
+The *nix version of FZF also replaces your Ctrl-R command history search with a fancier version that uses the same fuzzy-matching algorithm. Unfortunately, this isn't available in the Windows version. Too bad; it's a useful feature.
+
+### What Works and What Doesn't
+
+The Node ecosystem works great on Windows. NPM, Yarn, Angular 5, and so on all run very well. I do a lot of my Angular development on Windows.
+
+PHP generally runs well on Windows, though I find recent versions to be somewhat slower than on *nix. Caveat: a few third-party tools like the Pantheon CLI seem to get confused when running on a Windows file system.
+
+Python also works fairly well. I've been developing Django apps on Windows for years. I haven't gotten Virtualenv or hosting with Apache and WSGI to work on Windows yet, however.
+
+Ruby is the notable gotcha here. While it is possible to run Rails on Windows, it's not a great experience. Best try the Windows Subsystem for Linux or Docker if you want to do Rails development.
+
+Happy coding!
