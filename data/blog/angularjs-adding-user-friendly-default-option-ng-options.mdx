@@ -1,0 +1,98 @@
+---
+title: "AngularJS: Adding a user-friendly default option to ng-options"
+summary: "Angular's ng-options directive provides a nifty way to build a select element, but its handling of default values is a bit puzzling."
+date: 2015-11-03T12:00:00Z
+tags:
+  - web dev
+  - angular
+  - angularjs
+images:
+  - /static/images/blog/angularjs-logo-blog-header.jpg
+---
+
+_Note: Note: This article refers to AngularJS v1.x only. Angular 2 and above use a different templating syntax and these instructions do not apply._
+
+Angular's **ng-options** directive provides a nifty way to build a select element based on an array in your scope. It can even bind the options to objects in the array, not just string values. But its handling of default values can be a bit puzzling.
+
+If you ever find that your bound value doesn't match any of the available options, you could end up with this bit of inscrutable content in your DOM:
+
+```html
+<select ng-model="sel.myvar" ng-options="opt.label for opt in sel.myoptions">
+	<option value="?"></option>
+	<option value="option1">Option 1</option>
+	<option value="option2">Option 2</option>
+</select>
+```
+
+What's up with that first option element? It's not one of your provided options. And why is there a question mark?
+
+When your variable doesn't match any of the options, Angular won't automatically select the first option. Instead it creates a new, blank option to represent the lack of a match. It always gives this option a blank label, which can be confusing to your users.
+
+It turns out there is a way to provide a more descriptive default option with a user-friendly label. This will be selected any time the variable in ng-model doesn't match an option in the ng-options. Leave the ng-options directive as-is, and add a single option element into your HTML, with a value of empty string:
+
+```html
+<select ng-model="sel.myvar" ng-options="opt.label for opt in sel.myoptions">
+	<option value="">-- choose an option --</option>
+</select>
+```
+
+Now, this option will be selected when your ng-model variable doesn't match anything else.
+
+### A practical application
+
+Now that we understand the theory, let's build a small sample application. This will contain two select boxes and a few buttons that we can use to change the value of the ng-model variable.
+
+#### Controller
+
+Our controller is pretty simple. It just defines a couple variables:
+
+```javascript
+angular.module('ngExampleApp').controller('SelectCtrl', function () {
+ 
+  this.myoptions = [
+    {value: 'cat', label: 'Fluffy'},
+    {value: 'dog', label: 'Rover'}
+  ];
+  this.myvar = this.myoptions[1];
+ 
+});
+```
+
+#### View
+
+Our view contains the select elements and the buttons:
+
+```html
+<div ng-controller="SelectCtrl as sel">
+	<p>Select with no default option:
+		<select ng-model="sel.myvar" ng-options="opt.label for opt in sel.myoptions"></select>
+	</p>
+ 
+	<p>Select with default option:
+		<select ng-model="sel.myvar" ng-options="opt.label for opt in sel.myoptions">
+			<option value="">-- please choose an animal --</option>
+		</select>
+	</p>
+ 
+	<button ng-click="sel.myvar=sel.myoptions[0]">cat</button>
+	<button ng-click="sel.myvar=sel.myoptions[1]">dog</button>
+	<button ng-click="sel.myvar={value:'fish',label:'Bubbles'}">fish</button>
+ 
+</div>
+```
+
+Here, we have two select dropdowns which are bound to the same ng-model variable and the same set of options in `ng-select`. The difference is that the second `<select>` contains an additional `<option>` element with an empty string value.
+
+The buttons are used to change the value of myvar. When you click them, they will change the selected value of the two `<select>` elements. Notice that the myoptions array contains two elements (cat and dog) while the third button sets myvar to a different value (fish).
+
+Clicking the "cat" and "dog" buttons works as expected, changing the select to "Fluffy" or "Rover" as appropriate. Clicking the "fish" button, however, sets myvar to a value that is not listed in myoptions.
+
+Each of the `<select>` elements behaves differently in this case:
+
+The first `<select>` will generate the `<option value="?">` element with a blank label.
+
+The second `<select>` does not generate a blank option. Instead, it selects the default "-- please choose an animal --" option we provided. You can customize the text to whatever you like. This provides a nicer experience for the user, who won't see a `<select>` with a blank label.
+
+There is one important limitation, however. The default option must have an empty string as its value. Giving it a value other than empty string will cause it to not be included in the DOM at all.
+
+For a more sophisticated example of ng-options in action, [try the Plunkr in the AngularJS documentation](https://docs.angularjs.org/api/ng/directive/ngOptions#example).

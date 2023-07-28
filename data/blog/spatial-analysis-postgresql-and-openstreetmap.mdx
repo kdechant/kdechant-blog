@@ -1,0 +1,180 @@
+---
+title: "Spatial analysis with PostgreSQL and OpenStreetMap"
+summary: "Using open-source map data to calculate the most remote location in a US state."
+date: 2018-01-08T12:00:00Z
+tags:
+  - web dev
+  - database
+  - data science
+  - python
+images:
+  - /static/images/blog/map1a.jpg
+---
+
+I've always been a map geek, dating back to the 1980s when I would take a road atlas and some tracing paper and draw in my own road network. And one of my favorite games is to take an old map or globe and try to determine when it was made based on the names and shapes of countries. In the age of online mapping software, big data, and data science, it gets even more interesting. Now I can download the whole data set for the map and write programs against it!
+
+Recently, I have been following [Project Remote](http://remotefootprints.org/project-remote), a family's adventure to calculate and document the point in each US state that is furthest from a road. As of this writing, they have done 33 states, and Oregon is not one of them. This got me thinking. Project Remote doesn't publish their exact formula, but they gave some hints. Based on those, can I calculate the most remote point in Oregon?
+
+Well, OK, that's a bit complicated. There are thousands of roads in Oregon, and how can I crunch that many numbers? Maybe I'll start smaller.
+
+Instead of all roads, I'll just use freeways, because there aren't as many of those. And I'll start with just Portland, because that's where most of the freeways are, and it's also familiar territory.
+
+There seem to be two ways to find the point furthest from a freeway:
+
+1.  Use a brute-force approach, setting up a grid of points and calculate how far each point is from the nearest freeway
+2.  Write an AI to start at an arbitrary point and move further from the freeway
+
+For Metal Toad's December 2017 Data Science hackathon, my coworker [Kalina Wilson](https://www.linkedin.com/in/kalinawilson) and I decided that the AI option would be more interesting.
+
+So, how to do it? To start with, I had the following questions:
+
+1.  Given a set of lat/long coordinates, can the computer determine if the point is inside the state of Oregon?
+2.  Can the computer measure the distance to the nearest freeway?
+3.  Can the computer move the coordinates to a nearby point that is further from a freeway?
+
+It turns out that the answer to all of these questions is "yes," and it turned out to be easier than I expected.
+
+### The Tools
+
+To start with, we need some data and some tools to analyze it. I settled on the following tools, because they're all free and open source, and they all are built to work nicely with each other.
+
+#### OpenStreetMap data
+
+[OpenStreetMap](https://www.openstreetmap.org) is open-source mapping software. Its map data is entirely community-built (i.e., crowd-sourced) and is freely available for download. The data set contains information about the shapes of states, counties, and cities; roads and highways; rivers and lakes; national parks and forests; and points of interest like businesses, post offices, and mountain peaks.
+
+The worldwide OpenStreetMap data set is 40 GB compressed. That's a mouthful, so various organizations have extracted specific regions, like a single country or state. For this project, we used the data for Oregon, which is 134 MB. You can read about all the various downloading options on [the OpenStreetMap wiki](https://wiki.openstreetmap.org/wiki/Downloading_data).
+
+#### PostGIS
+
+PostGIS is an extension for PostgreSQL to work with geometric and geographic data. It provides a Geometry column type and dozens of geometry-related functions. Available functions can perform calculations like:
+
+*   Find the distance between two shapes
+*   Find the direction from one shape or point to another
+*   Determine whether a point is inside a polygon
+*   Unit conversions, e.g., degrees lat/long into meters/feet
+
+OpenStreetMap data comes in a specific format called PBF, which we can load into PostgreSQL using [an open-source tool called osm2pgsql](https://github.com/openstreetmap/osm2pgsql).
+
+QGIS
+
+![Screenshot of the QGIS application, showing a map of Oregon with roads, rivers, and mountains highlighted](/sites/default/files/2018-01/qgis.jpg)
+
+[QGIS](https://www.qgis.org/en/site/index.html) is a desktop application for viewing Geographic Information System data.
+
+It has a database manager that can connect directly to PostgreSQL. You can write a SQL query, using PostGIS functions and regular SQL "where" clauses, and include the results as a layer on the map.
+
+Geopy
+
+[Geopy](https://pypi.python.org/pypi/geopy) is a Python library for working with geocoding data and performing geometry and geograpy calculations. It can look up locations and addresses by calling various web services. It can also perform calculations to measure distances from two points. Using [a mostly-undocumented feature](https://stackoverflow.com/questions/24427828/calculate-point-based-on-distance-and-direction), I learned it can also do things like "From (45.51° N, 122.67° W), go 500 meters at a compass heading of 45° northeast."
+
+#### JavaScript Libraries
+
+For visualization in the browser, we used:
+
+[Leaflet JS](http://leafletjs.com/) is a popular JavaScript library for creating interactive maps. 
+
+[MapBox GL JS](https://www.mapbox.com/mapbox-gl-js/api/) is originally based on Leaflet JS but uses vector tiles, which adds significant client side capabilities (zooming, metadata queries, styles).
+
+[Turf JS](http://turfjs.org/) adds spatial analysis and statistics tools which enable measurements, calculations, and selections.
+
+### Working with the Data
+
+After loading the Oregon data set into my database, I was able to use a database front-end tool to view the data. I found that I now have three interesting tables: points, lines, and polygons. Each represents a type of geometry and contains every object with that geometric shape. "Points" contains businesses, mountain peaks, and other point-source features. "Lines" include roads, rivers, lakes, and other "open" geometric shapes. "Polygons" represent closed shapes, like states, counties, cities, national forests, and lakes.
+
+Each of the tables contains a number of text columns containing taxonomy information (type of road, type of water, type of border, elevation, etc.) and another column called "way." A "way" is OpenStreetMap speak for a geographic shape. It is represented as the PostGIS "geometry" data type. In the database, a Way looks something like 0101000020E6100000FA7E6ABC74AB5EC0DF4F8D976E424740, which is an encoded representation of the geographic shape "POINT(-122.679 46.519)".
+
+PostGIS provides a number of functions for manipulating ways and shapes in SQL.
+
+Example: to find the direction and distance from Portland's Pioneer Courthouse Square to the Moda Center:
+
+```sql
+SELECT
+  ST_Distance(
+   ST_Transform(ST_GeomFromText('POINT(-122.679 45.519)', 4326), 2269),
+   ST_Transform(ST_GeomFromText('POINT(-122.667 45.532)', 4326), 2269)
+  ) AS distance,
+  degrees(ST_Azimuth(
+   ST_GeomFromText('POINT(-122.679 45.519)', 4326),
+   ST_GeomFromText('POINT(-122.667 45.532)', 4326)
+ )) AS direction;
+```
+
+Results in:
+
+|Distance|Direction|
+|5650.219171193315|42.709389957366675|
+
+In human terms, this means 5650 feet at a heading of 42.7° northeast.
+
+For another example, we can use the function `ST_Intersects()` to find the name of the city, county, and state a point exists within. Remember from above that city, county, and state boundaries are stored in the "polygon" table in the database. They are identified by the "boundary" and "admin_level" fields, where an "admin_level" of 4 is a state, 6 is a county, 8 is a city, and 10 is a neighborhood.
+
+```sql
+SELECT name
+FROM planet_osm_polygon
+WHERE
+ boundary = 'administrative' AND
+ AND ST_Intersects(
+    ST_GeomFromText('POINT(-122.679 45.519)', 4326),
+    ST_Transform(way, 4326)
+)
+```
+
+|name|admin_level|
+|Oregon|4|
+|Multnomah County|6|
+|Portland|8|
+|Portland Downtown|10|
+
+In case you were wondering, the data set we used is limited to Oregon, so it doesn't contain objects like countries. Hence, you won't see the USA listed in the results. Other OSM data exports may contain more types of boundaries.
+
+#### Transformations and Spatial Reference ID
+
+Notice the use of the `ST_Transform()` function above, and some cryptic numbers like 4326 and 2269\. This is how unit conversions work in PostGIS. The numbers are called [Spatial Reference IDs](http://spatialreference.org/) or SRIDs. SRID 4326 is latitude and longitude. SRID 2269 is a locale-specific coordinate system called "NAD83 / Oregon North (ft)." Due to the somewhat irregular shape of Earth and the fact that lines of longitude converge as you approach the poles, every locale has its own coordinate system. To find distances, we need to frequently convert shapes from one coordinate system to another.
+
+### Finding the furthest point from a road
+
+Now that we have a handle on how our data looks, we can get to work. The ST_Distance(), ST_ClosestPoint() and ST_Azimuth() functions work with any types of shapes, not just points. So, we can calculate, for example, the distance from a point to the _nearest point anywhere on a line_. This will be the core of our "furthest from a road" calculation. To find the nearest freeway, and the direction to it, we can run a query like:
+
+```sql
+SELECT osm_id, name, highway, REF,
+ ST_AsText(ST_Transform(ST_ClosestPoint(way, 'SRID=900913;POINT(-122.679 45.519)'::geometry), 4326)) AS closest_point,
+  ST_Distance(
+   way_local,
+   ST_Transform(ST_GeomFromText('POINT(-122.679 45.519)',4326), 2285)
+ ) AS distance,
+ degrees(ST_Azimuth(
+  ST_GeomFromText('POINT(-122.679 45.519)', 4326),
+  ST_ClosestPoint(ST_Transform(way, 4326), ST_GeomFromText('POINT(-122.679 45.519)', 4326))
+ )) AS azimuth
+FROM roads
+WHERE
+  highway IN ('motorway')
+ORDER BY distance
+LIMIT 1
+```
+
+Now that we know where the nearest road is in relation to our point, we just need to program the AI. For this project, we wrote a couple very simple AIs, which all followed a similar plan:
+
+![Screenshot of a map of Portland, Oregon, showing colored lines representing the routes taken by the artificial intelligence algorithm when trying to move away from the nearest freeway](/sites/default/files/2018-01/map2.jpg)
+
+*   Find the distance and direction to the nearest road
+*   Move the point a short distance (say, 1000 feet) in the opposite direction
+*   Check to see if the new point is still within the state of Oregon
+*   Recalculate distance and direction of the new point
+*   Repeat the process for several iterations
+
+Again, it's not too sophisticated. If you put the starting point inside a freeway loop, like the I-5/I-405 loop around downtown Portland, it's not even smart enough to know it's inside a closed shape. Thus, the algorithm also won't be able to "escape" an enclosing shape to find points outside it. If the point farthest from the freeway is actually on the _other side_ of the freeway, this algorithm won't find it. All it can do is find the point at the _local maximum_ distance. Solving that problem will have to be the subject of future AI research.
+
+### Wrapping it up - Back to the Project Remote idea
+
+Once we finished the simple AIs, I had a bigger goal in mind. I wanted to see if I could finish my original idea, to calculate the most remote point in Oregon. And, for fun, Washington, as well.
+
+My plan was to create a grid of points across the state, spaced in approximately 2-mile intervals. Then I would calculate the distance from each point to the nearest road of any kind. The geometry number crunching is computationally expensive, so this took several hours to calculate.
+
+Once I identified a few candidates for the most remote point, I could then use a modified version of the AI above. I programmed it to move away from any road in the database, even the unnamed 4-wheel-drive tracks.
+
+This turned out to be fairly successful. I identified a point in northeastern Oregon (in the beautiful Wallowa Mountains) that is 7.5 miles from the nearest road, and a point in the Olympic National Park in Washington that is 13.6 miles from the nearest road. (I'm not publishing the exact locations. I'd rather not risk having these pristine places become overrun with tourists.)
+
+To validate my findings, I found a map on the Project Remote website that shows a red dot for the remote point they identified in each state. Their image is very zoomed-out and purposely doesn't show exact locations, but they do have a red dot in the northeast corner of Oregon and the northwest corner of Washington, in the general vicinity of the points I identified.
+
+I hope you find this as interesting as I did. I always like to chat about map and data-related projects. If that's your interest as well, drop me a line. Happy exploring!

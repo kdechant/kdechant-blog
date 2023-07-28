@@ -1,0 +1,378 @@
+---
+title: "Drupal 8 Migrations, part 2: Migrating users from Drupal 7"
+summary: "In this article, we will be building a custom migration which will import users from a Drupal 7 site into a Drupal 8 site."
+date: 2014-11-30T12:00:00Z
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+**Note: This article is historical content. It will not be updated for Drupal 9+**
+
+In this article, we will be building a custom migration which will import users from a Drupal 7 site into a Drupal 8 site. The migration will include the standard user profile fields like username and email address, plus a few custom fields added to the user profile.
+
+The Drupal 8 Migration system is very flexible and can be used to migrate many types of data. For an overview of its capabilities and architecture, see [Part 1 of this series](/blog/migrating-content-drupal-8).
+
+### Try this at home!
+
+If you want to try this code yourself, you will need to set up the following:
+
+A clean install of Drupal 7, with the following customizations:
+
+In Admin -> Configuration -> People -> Account Settings -> Manage Fields, add the following fields:
+
+*   "First Name" - Text
+*   "Last Name" - Text
+*   "Biography" - Long text (summary is not necessary)
+*   The default widget and settings are OK for all fields
+
+Once the field configuration is complete, you will need to create a few users so you have some data to migrate.
+
+A clean install of Drupal 8, with the following:
+
+In Admin -> Configuration -> People -> Account Settings -> Manage Fields, add the following fields:
+
+*   "First Name" - Text (plain)
+*   "Last Name" - Text (plain)
+*   "Biography" - Text (formatted, long)
+*   The default widgets and settings are OK for all fields
+
+### Create the custom migration module
+
+Migrations are contained within Drupal 8 modules. Custom migration modules depend on the core "Migrate" module, which provides the migration framework. In addition, for our custom migration here, we are depending on the core "Migrate Drupal" module (which provides Drupal 6 to Drupal 8 migrations) for some base classes. We will also use the migration grouping feature from the "Migrate Plus" module.
+
+To begin, we will create our own custom module called "migrate_custom" and add the following information to the file "migrate_custom.info.yml":
+
+```yaml
+name: Custom Migration
+description: Custom migration module for migrating data from a Drupal 7 site.
+package: Migrations
+type: module
+core: 8.x
+dependencies:
+  - migrate
+  - migrate_drupal
+```
+
+### The migration definition
+
+For our migration, we need to create a YAML file containing the source, destination, and field mappings (called "process").
+
+#### Source and destination
+
+These configuration parameters inform the Migrate module about which plugins to use to Extract the data from the source and Load it into the destination database. In our example, "source" will refer to a custom plugin we define, and "destination" will refer to the built-in "entity:user" plugin defined by the core Migrate module.
+
+To start our migration definition, create a new file within your module, in the location `{module root}/config/install/migrate_plus.migration.custom_user.yml` with the following contents:
+
+```yaml
+id: custom_user
+label: Custom user migration
+migration_group: custom
+ 
+# define a forced module dependency. this will cause the migration definition to be reloaded
+# when you uninstall and reinstall your custom module.
+dependencies:
+  enforced:
+    module:
+      - migrate_custom
+
+source:
+  plugin: custom_user
+  # The "target" here refers to the database connection where the source data lives.
+  # You will need to configure this database in your settings.php.
+  target: db_migration
+
+destination:
+  plugin: entity:user
+
+process:
+  # Field mappings and transformations will go here. We will get to this in a minute.
+```
+
+### Creating the source plugin
+
+Our definition above will request data from a source plugin called "custom_user". (Note that this name does not need to be the same as the name of the migration itself.) Source plugins are PHP classes which live in your module. So, we need to create a new PHP class to contain the source definition.
+
+Create a new file with the path `{module root}/src/Plugin/migrate/source/User.php` with the following contents:
+
+```php
+<?php
+/**
+ * @file
+ * Contains \Drupal\migrate_custom\Plugin\migrate\source\User.
+ */
+ 
+namespace Drupal\migrate_custom\Plugin\migrate\source;
+ 
+use Drupal\migrate\Row;
+use Drupal\migrate_drupal\Plugin\migrate\source\SqlBase;
+ 
+/**
+ * Extract users from Drupal 7 database.
+ *
+ * @MigrateSource(
+ *   id = "custom_user"
+ * )
+ */
+class User extends DrupalSqlBase implements SqlBase {
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function query() {
+    return $this->select('users', 'u')
+      ->fields('u', array_keys($this->baseFields()))
+      ->condition('uid', 0, '>');
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function fields() {
+    $fields = $this->baseFields();
+    $fields['first_name'] = $this->t('First Name');
+    $fields['last_name'] = $this->t('Last Name');
+    $fields['biography'] = $this->t('Biography');
+    return $fields;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function prepareRow(Row $row) {
+    $uid = $row->getSourceProperty('uid');
+ 
+    // first_name
+    $result = $this->getDatabase()->query('
+      SELECT
+        fld.field_first_name_value
+      FROM
+        {field_data_field_first_name} fld
+      WHERE
+        fld.entity_id = :uid
+    ', array(':uid' => $uid));
+    foreach ($result as $record) {
+      $row->setSourceProperty('first_name', $record->field_first_name_value );
+    }
+ 
+    // last_name
+    $result = $this->getDatabase()->query('
+      SELECT
+        fld.field_last_name_value
+      FROM
+        {field_data_field_last_name} fld
+      WHERE
+        fld.entity_id = :uid
+    ', array(':uid' => $uid));
+    foreach ($result as $record) {
+      $row->setSourceProperty('last_name', $record->field_last_name_value );
+    }
+ 
+    // biography
+    $result = $this->getDatabase()->query('
+      SELECT
+        fld.field_biography_value,
+        fld.field_biography_format
+      FROM
+        {field_data_field_biography} fld
+      WHERE
+        fld.entity_id = :uid
+    ', array(':uid' => $uid));
+    foreach ($result as $record) {
+      $row->setSourceProperty('biography_value', $record->field_biography_value );
+      $row->setSourceProperty('biography_format', $record->field_biography_format );
+    }
+ 
+    return parent::prepareRow($row);
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function getIds() {
+    return array(
+      'uid' => array(
+        'type' => 'integer',
+        'alias' => 'u',
+      ),
+    );
+  }
+ 
+  /**
+   * Returns the user base fields to be migrated.
+   *
+   * @return array
+   *   Associative array having field name as key and description as value.
+   */
+  protected function baseFields() {
+    $fields = array(
+      'uid' => $this->t('User ID'),
+      'name' => $this->t('Username'),
+      'pass' => $this->t('Password'),
+      'mail' => $this->t('Email address'),
+      'signature' => $this->t('Signature'),
+      'signature_format' => $this->t('Signature format'),
+      'created' => $this->t('Registered timestamp'),
+      'access' => $this->t('Last access timestamp'),
+      'login' => $this->t('Last login timestamp'),
+      'status' => $this->t('Status'),
+      'timezone' => $this->t('Timezone'),
+      'language' => $this->t('Language'),
+      'picture' => $this->t('Picture'),
+      'init' => $this->t('Init'),
+    );
+    return $fields;
+ 
+}
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function bundleMigrationRequired() {
+    return FALSE;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function entityTypeId() {
+    return 'user';
+  }
+ 
+}
+?>
+```
+
+Pay attention to the docblock immediately preceding the class definition. The annotation
+
+```
+ * @MigrateSource(
+ *   id = "custom_user"
+ * )
+```
+
+sets the ID of the plugin. This ID must match the ID we used in the migration definition above. Failure to keep these the same will result in a "source plugin not found" error.
+
+Also noteworthy here are a few required methods:
+
+`query()` defines the basic query used to retrieve data from Drupal 7's `users` table. This example works with Drupal 7, but you can query any database table or other data source here.
+
+`prepareRow()` will be called once for each row, at the beginning of processing. Here, we are using it to load the related data from the field tables (first name, last name, and biography). Any property we create using `$row->setSourceProperty()` will be available in our "process" step. Notice that the biography is slightly different from the other fields, because it is a formatted text field. In addition to the contents, its field table also contains a formatting setting, which we want to import.
+
+`baseFields()` contains an array of the basic fields within the `users` table. These are used by query() and also are used by the Migrate Upgrade contrib module to describe the fields. The field descriptions are not used by the Drush "migrate-manifest" command.
+
+### The destination plugin
+
+The `destination:` setting in migrate_plus.migration.custom_user.yml informs the Migrate module where to store your data. In our case, we are using the "entity:user" plugin, which is built in to the core Migrate module. For importing other content, there are several other built-in destination plugins, such as "entity:node", "entity:user_role", "entity:taxonomy_term", "url_alias", and more. For the complete list, inspect the files in your Drupal 8 site at `core/modules/migrate/src/Plugin/migrate/destination`.
+
+You can define your own destination plugin if you require, but the built-in ones are sufficient to handle the most common Drupal content like users, nodes, taxonomy terms, and managed files. If you maintain a module which provides a custom entity type, you would need to write your own destination plugin for this entity.
+
+### Process plugins and field mapping
+
+The "process" section contains instructions to map fields from the source to the destination. It also allows for many different types of transformations, such as replacing values, providing a default value, or de-duplicating machine names.
+
+Back in our `migrate_plus.migration.custom_user.yml` file, we now add our process settings:
+
+```yaml
+id: custom_user
+ 
+...
+
+process:
+  uid: uid
+  name: name
+  pass: pass
+  mail: mail
+  status: status
+  created: created
+  changed: changed
+  access: access
+  login: login
+  timezone: timezone
+  langcode: language
+  preferred_langcode: language
+  preferred_admin_langcode: language
+  init: init
+  field_first_name: first_name
+  field_last_name: last_name
+  'field_biography/value': biography_value
+  'field_biography/format':
+    plugin: static_map
+    bypass: true
+    source: biography_format
+    map:
+      1: plain_text
+      2: basic_html
+      3: full_html
+      4: full_html
+```
+
+The simplest process mappings take the form of `destination_field: source_field`. The source field can be anything your source plugin defines. The destination fields must match the fields available in the destination plugin.
+
+In our example, most of the fields in the source match fields of the same name in the destination. A few fields have been renamed from Drupal 7 to Drupal 8, for example "language" is now "langcode". The process field mappings reflect this.
+
+The Biography field is a special case here. It contains both a value and a format. So, we need to supply values for both of these. Also, the "field_biography_format" field in Drupal 7 contains integers, where in Drupal 8 it contains the machine names of the formats. To convert the old values to the new, we are using the "static_map" process plugin.
+
+If specified in the process field mappings, the UID field will cause migrate to preserve the UIDs in the imported data. This may cause migrate to overwrite existing users. It should be used with care.
+
+The core Migrate module includes several useful process plugins which are not covered here. See the official documentation at [https://www.drupal.org/node/2129651](https://www.drupal.org/node/2129651) for a complete list. You can also write your own process plugins if your data requires custom processing. Any custom process plugins can be saved in the directory `modules/{module name}/src/Plugin/migrate/process`.
+
+### Configuration entity dependencies
+
+While developing a migration module, you will often need to make changes to your migration definitions. Because these are configuration entities, you will need to reinstall your module for any changes to take effect.
+
+In the destination plugin code above, notice the `dependencies` block. This causes the configuration entity to be dependent on our module, so that Drupal will delete the configuration entities when you uninstall the module.
+
+Note: It is only necessary to explicitly declare dependencies in cases where the beginning of the configuration entity's key (migrate_plus) is different from the module name (migrate_custom).
+
+### Running the migration using Drush
+
+Now, it's time to install our new module and run the migrations. Use Drush or the Admin -> Extend page to enable the migrate_custom module, along with its dependencies: migrate, migrate_drupal, and migrate_plus. Also, make sure migrate_tools is installed, in order to use the Drush integration with Migrate.
+
+#### Setting up the database connection
+
+This tutorial assumes that your source data is in a different MySQL database on the same machine where your site runs. You will need to add an additional database connection to your `sites/default/settings.local.php` file:
+
+```php
+// your default database configuration should be above here
+ 
+$databases['migrate']['default'] = array (
+    'database' => '{name of your old site database}',
+    'username' => '{your MySQL username}',
+    'password' => '{password of your MySQL user}',
+    'prefix' => '',
+    'host' => 'localhost',
+    'port' => '3306',
+    'namespace' => 'Drupal\Core\Database\Driver\mysql',
+    'driver' => 'mysql',
+);
+```
+
+#### Viewing migration status
+
+Open a command prompt and run:
+
+`drush migrate-status`
+
+This should show you your existing migrations and which group they belong to. For each migration, it will show the total number of objects and the number that have already been imported.
+
+#### Running migrations
+
+To run a single migration, run the following command:
+
+`drush migrate-import custom_user`
+
+Or, to run the whole group of migrations, type:
+
+`drush migrate-import --group=custom`
+
+Log in to your Drupal 8 site, clear the cache, and view the users list. You should see your imported users from the Drupal 7 site.
+
+### Next steps
+
+This migration omits a few things for brevity, including user roles and signatures. As an exercise, you could expand the migration to include the "signature" and "signature_format" fields. Migrating the user roles would require a second migration, with its own definition and source plugin.
+
+Next post: [**Migrating Taxonomies from Drupal 7**](/blog/migrating-taxonomy-drupal-7-to-drupal-8)

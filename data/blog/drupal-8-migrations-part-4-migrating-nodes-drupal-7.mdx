@@ -1,0 +1,267 @@
+---
+title: "Drupal 8 Migrations, part 4: Migrating Nodes from Drupal 7"
+summary: "Using the Drupal 8 Migrate framework to migrate basic nodes from a Drupal 7 site into Drupal 8."
+date: 2014-12-11T12:00:00Z
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+**Note: This article is historical content. It will not be updated for Drupal 9+**
+
+Drupal 8 provides a flexible, plugin-based architecture for migrating data into a site. In [Part 3 of this series](/blog/migrating-taxonomy-drupal-7-to-drupal-8)<span>, we explored how to migrate taxonomies from a Drupal 7 site. We will now expand on this by migrating basic nodes from a Drupal 7 site into Drupal 8.</span>
+
+The code examples in this post build on the migration module begun in [Part 2 of this series](/blog/migrating-users-drupal-7-to-drupal-8). If you are trying this code out yourself, it is recommended to start building your custom migration module according to the examples in that post.
+
+### The game plan for migrating nodes
+
+Because Drupal nodes can be of many types and have many different user-defined fields, it is complicated to write a single migration script that can handle all fields for all node types. To keep things simple, we will only migrate the built-in "Article" content type, which has the same default fields in Drupal 7 and Drupal 8.
+
+### The migration definition
+
+Starting with the "Migrate Custom" module we created in Part 2, we now add the following configuration file.
+
+```yaml
+id: custom_article
+label: Custom article node migration from Drupal 7
+migration_group: custom
+dependencies:
+  enforced:
+    module:
+      - migrate_custom
+source:
+  plugin: custom_article
+destination:
+  plugin: entity:node
+  bundle: article
+process:
+  nid: nid
+  vid: vid
+  type: type
+  langcode:
+    plugin: static_map
+    bypass: true
+    source: language
+    map:
+      und: en
+  title: title
+  uid: uid
+  status: status
+  created: created
+  changed: changed
+  promote: promote
+  sticky: sticky
+  'body/format':
+    plugin: static_map
+    bypass: true
+    source: body_format
+    map:
+      1: plain_text
+      2: restricted_html
+      3: full_html
+      4: full_html
+  'body/value': body_value
+  'body/summary': body_summary
+  field_tags: tags
+  field_image: images
+```
+
+Pay attention to the last two fields in the definition, "field_tags" and "field_image." These fields can be configured to accept multiple values. (In the case of "field_image" the out-of-the-box configuration allows only one value, but this is easy to change using the Admin UI.) We account for these in the migration by providing only a single property name here. In our source plugin below, we will set these properties to be arrays, thus allowing as many values as exist in our source data.
+
+What's more, "field_image", like the body, is a compound field, in this case consisting of a file ID, ALT text, width, and height. We could specify those values in the definition, but that would limit us to importing only one image. Instead, we will use an associative array in our source plugin to populate all the components of the compound field.
+
+### The source plugin
+
+Similar to our Users source plugin in [Part 2 of this series](/blog/migrating-users-drupal-7-to-drupal-8), our Blog source definition needs to implement both the `query()` and `processRow()` methods. We will do this in the following file:
+
+```php
+<?php
+ 
+/**
+ * @file
+ * Contains \Drupal\migrate_custom\Plugin\migrate\source\Article.
+ */
+ 
+namespace Drupal\migrate_custom\Plugin\migrate\source;
+ 
+use Drupal\migrate\Row;
+use Drupal\migrate\Plugin\migrate\source\SqlBase;
+ 
+/**
+ * Drupal 7 Blog node source plugin
+ *
+ * @MigrateSource(
+ *   id = "custom_article"
+ * )
+ */
+class Article extends SqlBase {
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function query() {
+    // this queries the built-in metadata, but not the body, tags, or images.
+    $query = $this->select('node', 'n')
+      ->condition('n.type', 'article')
+      ->fields('n', array(
+        'nid',
+        'vid',
+        'type',
+        'language',
+        'title',
+        'uid',
+        'status',
+        'created',
+        'changed',
+        'promote',
+        'sticky',
+      ));
+    $query->orderBy('nid');
+    return $query;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function fields() {
+    $fields = $this->baseFields();
+    $fields['body/format'] = $this->t('Format of body');
+    $fields['body/value'] = $this->t('Full text of body');
+    $fields['body/summary'] = $this->t('Summary of body');
+    return $fields;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function prepareRow(Row $row) {
+    $nid = $row->getSourceProperty('nid');
+ 
+    // body (compound field with value, summary, and format)
+    $result = $this->getDatabase()->query('
+      SELECT
+        fld.body_value,
+        fld.body_summary,
+        fld.body_format
+      FROM
+        {field_data_body} fld
+      WHERE
+        fld.entity_id = :nid
+    ', array(':nid' => $nid));
+    foreach ($result as $record) {
+      $row->setSourceProperty('body_value', $record->body_value );
+      $row->setSourceProperty('body_summary', $record->body_summary );
+      $row->setSourceProperty('body_format', $record->body_format );
+    }
+ 
+    // taxonomy term IDs
+    // (here we use MySQL's GROUP_CONCAT() function to merge all values into one row.)
+    $result = $this->getDatabase()->query('
+      SELECT
+        GROUP_CONCAT(fld.field_tags_tid) as tids
+      FROM
+        {field_data_field_tags} fld
+      WHERE
+        fld.entity_id = :nid
+    ', array(':nid' => $nid));
+    foreach ($result as $record) {
+      if (!is_null($record->tids)) {
+        $row->setSourceProperty('tags', explode(',', $record->tids) );
+      }
+    }
+ 
+    // images
+    $result = $this->getDatabase()->query('
+      SELECT
+        fld.field_image_fid,
+        fld.field_image_alt,
+        fld.field_image_title,
+        fld.field_image_width,
+        fld.field_image_height
+      FROM
+        {field_data_field_image} fld
+      WHERE
+        fld.entity_id = :nid
+    ', array(':nid' => $nid));
+    // Create an associative array for each row in the result. The keys
+    // here match the last part of the column name in the field table. 
+    $images = [];
+    foreach ($result as $record) {
+      $images[] = [
+        'target_id' => $record->field_files_fid,
+        'alt' => $record->field_image_alt,
+        'title' => $record->field_image_title,
+        'width' => $record->field_image_width,
+        'height' => $record->field_image_height,
+      ];
+    }
+    $row->setSourceProperty('images', $images);
+ 
+    return parent::prepareRow($row);
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function getIds() {
+    $ids['nid']['type'] = 'integer';
+    $ids['nid']['alias'] = 'n';
+    return $ids;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function bundleMigrationRequired() {
+    return FALSE;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function entityTypeId() {
+    return 'node';
+  }
+ 
+  /**
+   * Returns the user base fields to be migrated.
+   *
+   * @return array
+   *   Associative array having field name as key and description as value.
+   */
+  protected function baseFields() {
+    $fields = array(
+      'nid' => $this->t('Node ID'),
+      'vid' => $this->t('Version ID'),
+      'type' => $this->t('Type'),
+      'title' => $this->t('Title'),
+      'format' => $this->t('Format'),
+      'teaser' => $this->t('Teaser'),
+      'uid' => $this->t('Authored by (uid)'),
+      'created' => $this->t('Created timestamp'),
+      'changed' => $this->t('Modified timestamp'),
+      'status' => $this->t('Published'),
+      'promote' => $this->t('Promoted to front page'),
+      'sticky' => $this->t('Sticky at top of lists'),
+      'language' => $this->t('Language (fr, en, ...)'),
+    );
+    return $fields;
+  }
+ 
+}
+```
+
+### Running the migration
+
+Remember to reinstall the module to load the new migration configuration. See [Part 3 of this series](/blog/migrating-taxonomy-drupal-7-to-drupal-8#reloading_configuration) for more information.
+
+As we did with our user migration, we now run the migration using Drush.
+
+```drush migrate-import custom_article```
+
+### Next steps
+
+This migration only handles a single content type, and only the fields that are configured in an out-of-the-box Drupal site. To practice what you have learned here, try adding some custom fields to the content types, then add them to the migration definition and source plugin. For more practice, try writing a custom migration for a different content type, like the Basic Page, or a custom content type from your site.

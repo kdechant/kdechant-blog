@@ -1,0 +1,40 @@
+---
+title: "Git: Push All Branches to a New Remote"
+summary: "How to push all branches in a repository to a new remote, even if the old remote is no longer available."
+date: 2017-10-09T12:00:00Z
+tags:
+  - web dev
+  - git
+---
+
+Here's a scenario some of you might have encountered with your Git repositories. You have a working copy of a Git repo, say from an old server. But you only have the working copy, and the origin is not accessible. So you can't just fork it. But you want to push the whole repo and all the branch history to your new remote.
+
+This is possible if your working copy contains the tracking branches from the old remote (origin/branch1, origin/branch1, etc.). If you do, you have the entire repo and history.
+
+However, in my case there were dozens of branches, and some or all of them I had never checked out locally. Pushing them all seemed like a heavy lift. So, how to proceed?
+
+I identified two options:
+
+### Option 1: Checkout every branch and push
+
+I could do this, and I could even write a Bash script to help. However, doing this would change my working files with each checkout, and would create a local branch for each of the remote tracking branches. This would be slow with a large repo.
+
+### Option 2: Push without changing your working copy
+
+There is a second alternative, which doesn't require a checkout of each branch, doesn't create extraneous branches in the working copy, and doesn't even modify the files in the working copy.
+
+If your old, no-longer-active remote is called "oldremote" and your new remote is called "newremote", you can push just the remote tracking branches with this command:
+
+```
+git push newremote refs/remotes/oldremote/*:refs/heads/*
+```
+
+In some cases, it's also possible to push just a subset of the branches. If the branch names are namespaced with a slash (e.g., oldremote/features/branch3, oldremote/features/branch4, etc.), you can push only the remote tracking branches with names beginning with "oldremote/features":
+
+```
+git push newremote refs/remotes/oldremote/features/*:refs/heads/features/*
+```
+
+Whether you push all the branches or just some of them, Git will perform the entire operation without creating any new local branches, and without making changes to your working files. Every tracking branch that matches your pattern will be pushed to the new remote.
+
+For more information on the topic, check out [this thread on Stack Overflow](http://stackoverflow.com/questions/6865302/push-local-git-repo-to-new-remote-including-all-branches-and-tags).

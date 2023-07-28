@@ -1,0 +1,276 @@
+---
+title: "Drupal 8 Migrations, part 3: Migrating Taxonomies from Drupal 7"
+summary: "Using the Drupal 8 Migrate framework to migrate Taxonomy vocabularies and terms from a Drupal 7 site into Drupal 8."
+date: 2014-12-11T12:00:00Z
+lastmod: 2017-10-11
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+**Note: This article is historical content. It will not be updated for Drupal 9+**
+
+Drupal 8 provides a flexible, plugin-based architecture for migrating data into a site. In [Part 2 of this series](/blog/migrating-users-drupal-7-to-drupal-8), we explored how to migrate users from a Drupal 7 site. We will now expand on this by migrating Taxonomy vocabularies and terms from a Drupal 7 site into Drupal 8.
+
+This article continues our work from [Part 2](/blog/migrating-users-drupal-7-to-drupal-8). The code examples pick up where that post left off. If you are trying this code out yourself, it is recommended to start building your custom migration module according to the examples in that post.
+
+### Migrating Taxonomy Vocabularies
+
+We'll start by writing a new migration definition, then write a source plugin to match. This will expand upon the "Migrate Custom" module we created in Part 2.
+
+The migration definition:
+
+Create a file named `modules/migrate_custom/config/install/migrate_plus.migration.custom_taxonomy_vocabulary.yml` with the following contents:
+
+```yaml
+id: custom_taxonomy_vocabulary
+label: Drupal 7 taxonomy vocabularies
+migration_group: custom
+dependencies:
+  enforced:
+    module:
+      - migrate_custom
+source:
+  plugin: custom_taxonomy_vocabulary
+process:
+  vid:
+    -
+      plugin: machine_name
+      source: machine_name
+    -
+      plugin: dedupe_entity
+      entity_type: taxonomy_vocabulary
+      field: vid
+      length: 32
+  label: name
+  name: name
+  description: description
+  hierarchy: hierarchy
+  module: module
+  weight: weight
+destination:
+  plugin: entity:taxonomy_vocabulary
+```
+
+Here we have examples of a few plugins not seen in the previous post:
+
+*   `machine_name` converts the string into a valid machine name.
+*   `dedupe_entity` prevents machine name conflicts, which would cause imported data to overwrite existing data. For example, a machine name "foo" would be renamed to "foo_2" if name "foo" already existed.
+
+The source plugin
+
+To define the source of our vocabulary data, we create a new file `modules/migrate_custom/src/Plugin/migrate/source/Vocabulary.php` with the following contents:
+
+```php
+<?php
+/**
+ * @file
+ * Contains \Drupal\migrate_custom\Plugin\migrate\source\Vocabulary.
+ */
+ 
+namespace Drupal\migrate_custom\Plugin\migrate\source;
+ 
+use Drupal\migrate\Row;
+use Drupal\migrate\Plugin\migrate\source\SqlBase;
+ 
+/**
+ * Drupal 7 vocabularies source from database.
+ *
+ * @MigrateSource(
+ *   id = "custom_taxonomy_vocabulary",
+ *   source_provider = "taxonomy"
+ * )
+ */
+class Vocabulary extends SqlBase {
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function query() {
+    $query = $this->select('taxonomy_vocabulary', 'v')
+      ->fields('v', array(
+        'vid',
+        'name',
+        'description',
+        'hierarchy',
+        'module',
+        'weight',
+        'machine_name'
+      ));
+    return $query;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function fields() {
+    return array(
+      'vid' => $this->t('The vocabulary ID.'),
+      'name' => $this->t('The name of the vocabulary.'),
+      'description' => $this->t('The description of the vocabulary.'),
+      'help' => $this->t('Help text to display for the vocabulary.'),
+      'relations' => $this->t('Whether or not related terms are enabled within the vocabulary. (0 = disabled, 1 = enabled)'),
+      'hierarchy' => $this->t('The type of hierarchy allowed within the vocabulary. (0 = disabled, 1 = single, 2 = multiple)'),
+      'weight' => $this->t('The weight of the vocabulary in relation to other vocabularies.'),
+      'parents' => $this->t("The Drupal term IDs of the term's parents."),
+      'node_types' => $this->t('The names of the node types the vocabulary may be used with.'),
+    );
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function getIds() {
+    $ids['vid']['type'] = 'integer';
+    return $ids;
+  }
+ 
+}
+```
+
+Note: this file was adapted from the Drupal 6 version in Drupal 8 core. For the original file, see `core/modules/migrate_drupal/src/Plugin/migrate/source/d6/Vocabulary.php`
+
+The structure of this file is similar to the User source plugin in the previous article. However, because all the data we need is stored in the `taxonomy_vocabulary` table in the source database, we do not need to define the `prepareRow()` method.
+
+### Migrating Taxonomy Terms
+
+We can use a second migration definition to migrate our taxonomy terms. Create the following file:
+
+`modules/migrate_custom/config/install/migrate_plus.migration.custom_taxonomy_term.yml`
+
+```yaml
+id: custom_taxonomy_term
+label: Drupal 7 taxonomy terms
+migration_group: custom
+dependencies:
+  enforced:
+    module:
+      - migrate_custom
+source:
+  plugin: custom_taxonomy_term
+process:
+  tid: tid
+  vid:
+    plugin: migration_lookup
+    migration: custom_taxonomy_vocabulary
+    source: vid
+  name: name
+  description: description
+  weight: weight
+  parent:
+    -
+      plugin: skip_on_empty
+      source: parent
+    -
+      plugin: migration_lookup
+      migration: custom_taxonomy_term
+  changed: timestamp
+destination:
+  plugin: entity:taxonomy_term
+migration_dependencies:
+  required:
+    - custom_taxonomy_vocabulary
+```
+
+In this migration, we make use of the `migration` process plugin for two of our properties, the vocabulary ID and the parent term ID. This preserves these references in case the referenced entity's ID or machine name changed during the import.
+
+Some machine names and/or IDs will likely change when running your import. This is to be expected, especially because Drupal 8 stores taxonomy vocabularies in the 'config' table, where they are accessed by their machine names instead of by the numeric IDs used in Drupal 7\. Fortunately for us, the Migrate module records a map of the old and new IDs in the database. We can then use the `migration` source plugin to easily look up the old ID or machine name.
+
+The source plugin
+
+To define the source of our term data, we create a new file `modules/migrate_custom/src/Plugin/migrate/source/Term.php` with the following contents:
+
+```php
+
+
+<?php
+/**
+ * @file
+ * Contains \Drupal\migrate_custom\Plugin\migrate\source\Term.
+ */
+namespace Drupal\migrate_custom\Plugin\migrate\source;
+ 
+use Drupal\migrate\Row;
+use Drupal\migrate\Plugin\migrate\source\SqlBase;
+ 
+/**
+ * Drupal 7 taxonomy terms source from database.
+ *
+ * @todo Support term_relation, term_synonym table if possible.
+ *
+ * @MigrateSource(
+ *   id = "custom_taxonomy_term",
+ *   source_provider = "taxonomy"
+ * )
+ */
+class Term extends SqlBase {
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function query() {
+    $query = $this->select('taxonomy_term_data', 'td')
+      ->fields('td', array('tid', 'vid', 'name', 'description', 'weight', 'format'))
+      ->distinct();
+    return $query;
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function fields() {
+    return array(
+      'tid' => $this->t('The term ID.'),
+      'vid' => $this->t('Existing term VID'),
+      'name' => $this->t('The name of the term.'),
+      'description' => $this->t('The term description.'),
+      'weight' => $this->t('Weight'),
+      'parent' => $this->t("The Drupal term IDs of the term's parents."),
+    );
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function prepareRow(Row $row) {
+    // Find parents for this row.
+    $parents = $this->select('taxonomy_term_hierarchy', 'th')
+      ->fields('th', array('parent', 'tid'))
+      ->condition('tid', $row->getSourceProperty('tid'))
+      ->execute()
+      ->fetchCol();
+    $row->setSourceProperty('parent', $parents);
+    return parent::prepareRow($row);
+  }
+ 
+  /**
+   * {@inheritdoc}
+   */
+  public function getIds() {
+    $ids['tid']['type'] = 'integer';
+    return $ids;
+  }
+}
+```
+
+### Reloading the configuration
+
+Remember that migration definitions are configuration entities. To reload the configuration, we need to uninstall and reinstall our module. Here's a handy Drush command to do this:
+
+```
+drush pm-uninstall migrate_custom -y && drush en migrate_custom
+```
+
+### Running the migration
+
+As we did with our user migration, we now run the migration using Drush.
+
+```
+drush migrate-import custom_taxonomy_vocabulary
+drush migrate-import custom_taxonomy_term
+```
+
+Next post: [**Migrating Nodes from Drupal 7**](/blog/migrating-nodes-drupal-7-to-drupal-8).

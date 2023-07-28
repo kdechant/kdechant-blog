@@ -1,10 +1,14 @@
 ---
-title: 'Angular text adventure, part 3: The game data models'
+title: "Angular text adventure, part 3: The game data models"
 date: 2018-02-18T12:00:00Z
-lastmod: '2018-02-18'
-tags: ['angular', 'retro-gaming', 'rpg', 'web-dev']
+lastmod: 2018-02-18
+tags:
+  - angular
+  - retrogaming
+  - rpg
+  - web dev
 draft: false
-summary: "A look at a few of the game's data structures, and how Angular's HttpClient can make API calls to a Django Rest Framework API in a decoupled application."
+summary: A look at a few of the game's data structures, and how Angular's HttpClient can make API calls to a Django Rest Framework API in a decoupled application.
 ---
 
 This is part 3 of the series of making Eamon Remastered, a text adventure game written in Angular. Here, we will look at a few of the game's data structures, and see how Angular loads the data from the database.
@@ -244,7 +248,7 @@ export class Artifact extends GameObject {
 
 ### Loading the game data
 
-The actual data for each adventure is stored in a MySQL database on the server. The back-end system uses [Django Rest Framework](http://www.django-rest-framework.org/) to expose a REST API which Angular can query. To get at the data, we will use the [Angular HTTPClient service](https://www.metaltoad.com/blog/angular-5-making-api-calls-httpclient-service), which provides a data stream wrapped in [RxJS Observables](http://reactivex.io/rxjs/manual/overview.html#observable).
+The actual data for each adventure is stored in a MySQL database on the server. The back-end system uses [Django Rest Framework](http://www.django-rest-framework.org/) to expose a REST API which Angular can query. To get at the data, we will use the [Angular HTTPClient service](/blog/angular-5-making-api-calls-httpclient-service), which provides a data stream wrapped in [RxJS Observables](http://reactivex.io/rxjs/manual/overview.html#observable).
 
 To connect to the API, Eamon contains a class called the GameLoaderService. We call this from the main Angular component, AdventureComponent:
 

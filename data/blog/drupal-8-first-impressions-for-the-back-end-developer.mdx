@@ -1,0 +1,117 @@
+---
+title: "Drupal 8: First Impressions for the Back-End Developer"
+description: "Notable changes from Drupal 7 to Drupal 8"
+date: 2014-11-17T12:00:00Z
+draft: false
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+Drupal 8 is in beta now, and recently I’ve had a chance to start working with it. While much of the admin interface is comparable to Drupal 7, there have been some important changes for site builders and back-end developers. In this post, I will be looking at file system and database structure changes, Drush setup, and the new configuration entity type.
+
+Disclaimer: Drupal 8 beta 2 is not ready for production yet. If you start working with it, be warned that future beta releases might break backwards compatibility. You might need to write some code to upgrade. If this is not an option for you, you would be best served sticking with Drupal 7 until the Drupal 8 release candidate is available.
+
+### Content Types
+
+One of the most noticeable changes to the Drupal 8 admin UI is the revised Content Type creation pages.
+
+The “Manage Fields” page no longer contains a “widget” column. There is a new tab, “Form Display,” which allows more flexible configuration of the node add/edit form.
+
+“Manage Fields” also no longer allows custom sorting of the fields. “Body” is always listed first, followed by the custom fields in alphabetical order. The fields can be reordered  on the “Manage Form Display” and “Manage Display” tabs.
+
+### Comments
+
+In Drupal 8, comments are set up as a field, rather than a setting in the node type. To turn on comments for a content type, add a field of type "Comments" on the "Manage Fields" page. This is a more flexible system than in Drupal 7, allowing more than one type of comments for a single node.
+
+This change mostly affects the admin UI. Comments are still entities in Drupal 8, and their underlying data structure is similar to Drupal 7.
+
+### Database structure
+
+The notable changes in the database structure relate to the user profiles and the table names for field tables.
+
+The “users” table (a single table in Drupal 7) has been split into “users” and “users_field_data” which contains the data from the built-in fields like name and password. Several other tables, including "node", "comment", and "taxonomy_term" have undergone similar structure changes. This restructuring allows for easier translations of data in the core fields.
+
+Drupal 8 field tables now are prefixed with the type of entity they belong to. They have names like “node__field_image” or “user__field_first_name”. The data structure of these tables is similar to the Drupal 7 “field_data_*” tables, with only a few changes (e.g., the "language" column is now named "langcode").
+
+### Drush
+
+Drush versions 6 and 7, commonly used with Drupal 7, are not compatible with Drupal 8. You will need to install Drush 8.
+
+#### Cache and Registry
+
+Cache and registry handling in Drupal 8 has undergone some major changes from Drupal 7. Notably, the `cache clear` command has been replaced by `cache rebuild`.
+
+**Drupal 7:**  
+`drush cache-clear all`
+(a.k.a. `drush cc all`)
+
+**Drupal 8:**  
+`drush cache-rebuild`
+(a.k.a., `drush cr`).
+
+Note: In Drupal 8, you don't need to specify `drush cache-rebuild all`. The `cache-rebuild` command appears to always clear all the caches, and any additional arguments are ignored.
+
+Note: `drush cache-clear drush` is still used to update the list of Drush commands.
+
+As of this writing, the `drush registry-rebuild` command does not appear to be supported for Drupal 8. This may change in the near future.
+
+#### Package Management
+
+Drupal 8 does not allow disabling of modules. The `drush pm-disable` command has been removed. To turn off a module, you need to uninstall it with `drush pm-uninstall` or by using the "Uninstall" tab on the "Extend" page in the admin UI.
+
+As of Drupal 8 beta 2, uninstalling a module does not automatically delete the module's configuration data. However, some modules may have uninstall hooks which delete their configuration when they are uninstalled. Modules like these can no longer be uninstalled without deleting their configuration.  
+
+### Compiled CSS, JS, and Twig files
+
+In sites/default/files are several new directories:
+
+*   sites/default/files/php - Contains compiled Twig templates
+*   sites/default/files/css - Contains compiled and gzipped CSS files
+*   sites/default/files/js - Contains compiled JS files
+
+These files do not need to be added to your Git repository. Drupal will generate them automatically on page load, and they will have different file names on each machine (local dev machine, dev server, production server, etc.). Similarly, you shouldn’t try to edit these files manually because Drupal will automatically overwrite your changes at the next cache rebuild.
+
+The Drush `cache-rebuild` command will erase these files and rebuild them.
+
+#### Common errors - File permissions
+
+Incorrect file permissions can cause PHP errors, or missing CSS or JS. Consider the following error:
+
+```
+Fatal error: Class '__TwigTemplate_09ab09ab7c23bd1ffe135ac9872354bdeca182f' not found
+in /path/to/your/site/drupal/core/lib/Drupal/Core/Template/TwigEnvironment.php on line 152
+```
+
+This error occurs when the web server doesn’t have permissions to write to the directory sites/default/files. Change the permissions or ownership on that directory and this error should go away.
+
+If you encounter pages missing their CSS files, try checking the same file permissions.
+
+### Configuration Entities
+
+Drupal 8 introduces a new type of entity, the “configuration entity.” These are represented as YAML files in the “config/install” subdirectory within a module. When the module is installed, the data from these YAML files is loaded into entries in the “config” table in the database.
+
+The "config" table contains many of the settings that were formerly in the "system" table in Drupal 7. It also contains definitions for a number of things that were formerly in separate tables. Notable examples are Taxonomy vocabularies and text filter formats.
+
+Config entities are only updated when the module is installed or uninstalled. Drupal does not rebuild them when you rebuild the cache. During module development, you either need to uninstall and reinstall your module, or use the config_devel contrib module to make managing your config entities easier.
+
+Config entities are particularly useful when writing content migrations, because the migration definitions are config entities.
+
+As of Drupal 8 beta 2, configuration entities are no longer removed when a module is uninstalled. If your custom module uses configuration entities, and you don’t want these to persist during a reinstall of the module, it might be a good idea to write an uninstall hook to remove the entities.
+
+Example uninstall hook to remove configuration entities:
+
+```php
+/**
+* Implements hook_uninstall().
+*
+* Cleans up config entities installed by this module.
+*/
+function yourmodule_uninstall() {
+  db_query("DELETE FROM {config} WHERE name = 'your.config.entity.name'");
+  drupal_flush_all_caches();
+}
+```

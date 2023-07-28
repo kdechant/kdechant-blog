@@ -1,0 +1,95 @@
+---
+title: "Proxying MS SQL connections using PuTTY"
+summary: "Using PuTTY and port forwarding to connect to a remote MS SQL database."
+date: 2017-10-28T12:00:00Z
+tags:
+  - web dev
+  - database
+  - networking
+---
+
+Connecting to a Microsoft SQL Server database isn't too hard, most of the time. But, what if the database is in your office, and you want to access it remotely, but you don't have a VPN?
+
+There is another way to connect, using PuTTY and port forwarding. All you need is a server in the office which accepts SSH connections and can connect to the SQL Server. This will serve as a gateway or makeshift proxy server. With the proper port forwarding setup, you can connect to your database from anywhere.
+
+### Getting PuTTY set up
+
+This article assumes you already have a basic familiarity with SSH concepts and use of PuTTY to open SSH connections from Windows. This is not meant to be a "getting started" guide for using PuTTY. If you're new to PuTTY, try the official documentation ([https://the.earth.li/~sgtatham/putty/0.58/htmldoc/Chapter2.html#gs](https://the.earth.li/~sgtatham/putty/0.58/htmldoc/Chapter2.html#gs)) and a guide to creating SSH keys at [https://www.ssh.com/ssh/putty/windows/puttygen](https://www.ssh.com/ssh/putty/windows/puttygen)
+
+The instructions below will work equally well whether you use a password or a key to log into the gateway server.
+
+### Creating your PuTTY session
+
+Start PuTTY and enter the hostname and port of your gateway server. This should be the domain name or a public IP address. It's the address of the server you can connect to with SSH, not the address of the SQL server.
+
+<Figure
+  src="/static/images/blog/putty1.png"
+  align="left"
+  alt="Screenshot of the PuTTY Configuration screen, showing the Session tab"
+  caption=""
+/>
+
+If you are using an SSH key (recommended), you can set it up in the Connection -> SSH -> Auth tab on the PuTTY configuration window. It's also helpful to use Pageant to manage your keys.
+
+If you're using a password to connect, you can skip the last step.
+
+Now, save your session and try connecting to it, just to make sure the SSH connection works. If you have trouble, your company's network engineer should be able to help. Once that's working, it's time to set up the port forwarding.
+
+### Port forwarding in PuTTY
+
+PuTTY has some very powerful port forwarding options, though they can be a bit confusing. What we want to do here is forward traffic on the SQL Server port (1433) on to a different machine. The basic network diagram would look like this:
+
+Remote PC (Windows) ------> Gateway server (linux) -----> Database Server (Windows)
+
+To do this, we need to set up PuTTY to forward traffic from the local port 1433, through the gateway server, to port 1433 on the database server. You'll need to know the _internal_ IP address of your database server. I.e., the address you would us to connect if you were in the office, usually beginning with 192.168.x.x or 10.x.x.x.
+
+Navigate to Connection -> SSH -> Tunnels in the PuTTY dialog, and enter the following settings:
+
+- Source port: 1433
+- Destination port: 192.168.x.x:1433 or 10.x.x.x:1433 (replace this with the actual internal IP address of your DB server)
+- Type: Local
+- Click "Add"
+
+<Figure
+  src="/static/images/blog/putty2.png"
+  align="left"
+  alt="Screenshot of the PuTTY Configuration screen, showing the Port Forwarding tab"
+  caption=""
+/>
+
+Save your session again, then it should be ready to test. Leave your SSH session open for the remaining steps.
+
+### Configuring your connection strings
+
+Now it's time to edit your application's configuration files. Most .NET projects have the connection strings stored in Web.config or App.config, but your application may vary. Set your connection strings to point to the host "127.0.0.1" or "localhost".
+
+For a typical ASP.NET project, we would edit the Web.config file and change the connection strings like this:
+
+```xml
+<connectionStrings> 
+  <add name="MainContext" providerName="System.Data.SqlClient" 
+connectionString="Server=127.0.0.1; Database=your_database; User Id=your_user; Password=your_password;"/> 
+</connectionStrings> 
+```
+
+We're using 127.0.0.1 here, even if we don't have a database server installed on the local machine. As long as the PuTTY SSH connection is open, all traffic to localhost:1433 will be tunneled through the SSH connection and forwarded to the remote database server.
+
+Reminder: If you disconnect your PuTTY session, you will lose your database connection. Keep the PuTTY window open, though you can minimize it and you don't need to type anything into it.
+
+### Users of Windows virtual machines
+
+If you happen to be developing .NET applications on a Windows virtual machine within a Linux or MacOS host, you don't need PuTTY, because you have an easier option.
+
+In most cases, if you set up port forwarding at the _host_ operating system level, it will forward traffic originating from the _guest_ operating system as well. Thus, if you use a proxy application like [sshuttle](https://github.com/apenwarr/sshuttle), you can skip the PuTTY setup and forward the SQL Server connections at the host OS level. (Or forward all connections. This can be useful, because that way you can access other services on your office network.)
+
+The network diagram for this would look something like:
+
+Guest OS (Windows VM) ---> Host OS (Linux or Mac) ----> Gateway via sshuttle ----> Database server
+
+See [the sshuttle documentation](http://sshuttle.readthedocs.io/en/stable/) for instructions on setting up sshuttle.
+
+### Conclusion
+
+If you're a road warrior or remote worker, and you need to connect to that office database, you can do it even if you don't have a VPN. And, port forwarding in PuTTY isn't just for Linux services. You could set up a similar configuration for Oracle, HBASE, etc. I've even used port forwarding to connect to a Git server in the office.
+
+Happy coding!

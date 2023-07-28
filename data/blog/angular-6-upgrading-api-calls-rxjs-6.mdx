@@ -1,0 +1,167 @@
+---
+title: "Angular 6: Upgrading API calls to RxJS 6"
+summary: "A tutorial for upgrading Angular API calls to the new syntax for RxJS 6."
+date: 2018-01-08T12:00:00Z
+tags:
+  - web dev
+  - angular
+  - typescript
+images:
+  - /static/images/blog/rxjs-6-post.png
+---
+
+With the [release of Angular 6.0 in May 2018](https://blog.angular.io/version-6-of-angular-now-available-cc56b0efa7a4), the framework has been updated to depend on version 6.0 of the RxJS library. RxJS 6.0 has some breaking changes compared to RxJS 5.5 and older, specifically in the handling of some of the methods of the Observable class. This will affect the way [Angular developers](/help/angularjs) write API calls and handle other asynchronous processing in the future.
+
+This post outlines some of the changes and how to update your API calls to the new syntax.
+
+## Maintaining Backwards Compatibility
+
+First a note for anyone upgrading from Angular 4 or 5\. Don't panic! There is a library called '[rxjs-compat](https://www.npmjs.com/package/rxjs-compat)' which provides shims for backwards compatibility. So your RxJS 5.x API calls and Observable methods will still work, for now. In fact, if you're using the Angular CLI and you run `ng update @angular/core`, the [update script](https://update.angular.io/) will even install this for you.
+
+That said, you'll eventually want to upgrade your code to the native RxJS syntax. So, let's see how to do that.
+
+## What's Changed in RxJS 6
+
+One of the biggest changes in RxJS 6 is the removal of several of the class methods that were formerly on the Observable class, such as throwError() and forkJoin(). These class methods have been converted to regular functions. The actual capbilities are very similar. However, your `include` statements and method invokation will require an update.
+
+## Updating Your Code
+
+The code samples below are based on my previous post, [Angular 5: Making API calls with the HttpClient service](/blog/angular-5-making-api-calls-httpclient-service). See that post for the full code sample.
+
+First, let's consider a service that uses `forkJoin` to make parallel API calls. The Angular 5/RxJS 5 code looked like this:
+
+`src/app/demo.service.ts`:
+
+```typescript
+import {Injectable} from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import {Observable} from 'rxjs/Observable';  // Angular 5/RxJS 5.5 syntax
+ 
+const httpOptions = {
+    headers: new HttpHeaders({ 'Content-Type': 'application/json' })
+};
+ 
+@Injectable()
+export class DemoService {
+ 
+    constructor(private http:HttpClient) {}
+ 
+    getBooksAndMovies() {
+        // Angular 5/RxJS 5.5 syntax
+        return Observable.forkJoin(
+            this.http.get('/api/books'),
+            this.http.get('/api/movies')
+        );
+    }
+}
+```
+
+To upgrade this to RxJS 6 syntax, we need to change it to the following:
+
+```typescript
+import {Injectable} from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import {forkJoin} from 'rxjs';  // change to new RxJS 6 import syntax
+ 
+const httpOptions = {
+    headers: new HttpHeaders({ 'Content-Type': 'application/json' })
+};
+ 
+@Injectable()
+export class DemoService {
+ 
+    constructor(private http:HttpClient) {}
+ 
+    getBooksAndMovies() {
+        // Observable.forkJoin (RxJS 5) changes to just forkJoin() in RxJS 6
+        return forkJoin(
+            this.http.get('/api/books'),
+            this.http.get('/api/movies')
+        );
+    }
+}
+```
+
+Similarly, in an example component, we might have previously used Observable.throw() to re-throw an exception within the error callback of the Observable:
+
+`src/app/app.component.ts`:
+
+```typescript
+import {Component} from '@angular/core';
+import {DemoService} from './demo.service';
+import {Observable} from 'rxjs/Rx';  // Angular 5/RxJS 5.5
+ 
+@Component({
+  selector: 'demo-app',
+  template:`
+  ...
+  `
+})
+export class AppComponent {
+  ...
+ 
+  createFood(name) {
+    let food = {name: name};
+    this._demoService.createFood(food).subscribe(
+       data => {
+         // refresh the list
+         this.getFoods();
+         return true;
+       },
+       error => {
+         console.error("Error saving food!");
+         return Observable.throw(error);  // Angular 5/RxJS 5.5
+       }
+    );
+  }
+  ...
+}
+```
+
+In RxJS 6, `Observable.throw()` has been replaced by `throwError()` which operates very similarly to its predecessor. We just need to update the import statement and the new method name:
+
+src/app/app.component.ts:
+
+```typescript
+import {Component} from '@angular/core';
+import {DemoService} from './demo.service';
+import {throwError} from 'rxjs';  // Updated for Angular 6/RxJS 6
+ 
+@Component({
+  selector: 'demo-app',
+  template:`
+  ...
+  `
+})
+export class AppComponent {
+  ...
+ 
+  createFood(name) {
+    let food = {name: name};
+    this._demoService.createFood(food).subscribe(
+       data => {
+         // refresh the list
+         this.getFoods();
+         return true;
+       },
+       error => {
+         console.error("Error saving food!");
+         return throwError(error);  // Angular 6/RxJS 6
+       }
+    );
+  }
+  ...
+}
+```
+
+### Other Changes
+
+Several other methods of the Observable class have also been replaced with new functions. You can see the complete list in the [RxJS documentation](https://github.com/ReactiveX/rxjs/blob/6.2.0/MIGRATION.md).
+
+The Observables also have a new pipe syntax which replaces the chaining of some operators. See the [official RxJS migration documentation](https://github.com/ReactiveX/rxjs/blob/6.2.0/MIGRATION.md#pipe-syntax) for examples of how to configure the new pipe syntax.
+
+## Removing rxjs-compat
+
+Once you have updated your project to the new RxJS 6 syntax, the next step is to remove "rxjs-compat" from your package.json file and run `npm uninstall rxjs-compat`. Then test your project and the API calls. If everything works and you see no errors in your console, you have completed the upgrade to RxJS 6.0!
+
+Happy Coding!

@@ -1,0 +1,216 @@
+---
+title: "Drupal 8: Migrating data from JSON files "
+summary: "Using the Drupal 8 Migrate framework to migrate data from a JSON file instead of a database."
+date: 2017-10-09T12:00:00Z
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+**Note: This article is historical content. It will not be updated for Drupal 9+**
+
+The beauty of Drupal 8's built-in Migrate module is its flexibility. Lots of people will likely use it to migrate their Drupal 6 or 7 sites, but that's not all it can do. In fact, it's capable of migrating data from just about any data source PHP can read.
+
+The first few times I used Migrate in Drupal 8, I was migrating data from a MySQL database into Drupal. [See my previous posts about the topic here](/blog/migrating-content-drupal-8).
+
+Recently, my team had a new task: Migrating data from a series of JSON files into Drupal nodes. As the resident data migration enthusiast at Metal Toad, I decided to take on this task. It was a unique challenge and let me explore some different parts of the Migrate infrastructure.
+
+Let's say we have a series of JSON files, which are all in a single directory. There might be hundreds of them, and they all have the same structure:
+
+```json
+{ 
+"title": "page 1",
+"body": "<div class='post'>Lorem Ipsum dolor sit amet...</div>",
+"date": "2017-01-19",
+}
+```
+
+In real life, there will probably be more fields than this, but we're keeping it short for simplicity.
+
+### Our Custom Module
+
+For this exercise, we're going to put our migration into a custom module called "json_migrate". The module's YAML file contains just the basic information:
+
+File `drupal/modules/custom/json_migrate/json_migrate.yml`:
+
+```YAML
+name: Migrate from JSON files
+description: Custom migration module to import data from JSON files
+package: Migration
+type: module
+core: 8.x
+dependencies:
+  - drupal:migrate
+  - migrate_plus:migrate_plus
+  - migrate_tools:migrate_tools
+```
+
+### The Migration Definition
+
+Our migration definition YAML file is fairly simple. It defines a custom source plugin (json_page) and the built-in "entity:node" destination plugin. The field mappings look just like any other migration.
+
+File `drupal/modules/custom/json_migrate/config/install/migrate_plus.migration.json_page.yml`:
+
+```YAML
+id: json_page 
+label: JSON Page Migration 
+Group: json_example 
+source: 
+  plugin: json_page 
+destination: 
+  plugin: entity:node 
+  bundle: article 
+process: 
+  type: 
+    plugin: default_value 
+    default_value: article 
+  title: title 
+created: date 
+  changed: date 
+  'body/format': 
+    plugin: default_value 
+    default_value: basic_html 
+  'body/value': body
+  langcode: 
+    plugin: default_value 
+    default_value: en
+  uid: 
+    plugin: default_value 
+    default_value: 1
+
+# use forced module dependency so uninstall/reinstall works properly 
+dependencies: 
+  enforced: 
+    module: 
+      - json_migrate
+```
+
+You can see above how the fields in the JSON are going to map to the Drupal fields. Since our JSON data doesn't include data like the user ID and language code, we're providing default values for these fields.
+
+### The Source Plugin
+
+The interesting bit in this migration is the source plugin. It needs to provide its own iterator logic, which will loop through the JSON files in the file system and enumerate them as objects which can be migrated.
+
+File `drupal/modules/custom/json_migrate/src/Plugin/migrate/source/JsonPage.php`:
+
+```php
+<?php 
+namespace Drupal\json_migrate\Plugin\migrate\source; 
+use Drupal\migrate\Plugin\migrate\source\SourcePluginBase; 
+use Drupal\migrate\Row; 
+ 
+/** 
+* Source plugin to import data from JSON files 
+* @MigrateSource( 
+*   id = "json_page" 
+* ) 
+*/ 
+class JsonPage extends SourcePluginBase { 
+ 
+  public function prepareRow(Row $row) { 
+    $title = $row->getSourceProperty('title');  
+    // make sure the title isn't too long for Drupal 
+    if (strlen($title) > 255) { 
+      $row->setSourceProperty('title', substr($title,0,255)); 
+    }  
+    return parent::prepareRow($row); 
+  } 
+ 
+  public function getIds() { 
+    $ids = [ 
+      'json_filename' => [ 
+        'type' => 'string' 
+      ] 
+    ]; 
+    return $ids; 
+  } 
+ 
+  public function fields() { 
+    return array( 
+      'url' => $this->t('URL'), 
+      'title' => $this->t('Title'), 
+      'body' => $this->t('Body'), 
+      'date' => $this->t('Date Published'), 
+      'json_filename' => $this-t{"Source JSON filename") 
+    ); 
+  } 
+ 
+  public function __toString() { 
+    return "json data"; 
+  } 
+ 
+  /** 
+   * Initializes the iterator with the source data. 
+   * @return \Iterator 
+   *   An iterator containing the data for this source. 
+   */ 
+  protected function initializeIterator() { 
+ 
+    // loop through the source files and find anything with a .json extension 
+    $path = dirname(DRUPAL_ROOT) . "/source-data/*.json"; 
+    $filenames = glob($path); 
+    $rows = []; 
+    foreach ($filenames as $filename) { 
+      // using second argument of TRUE here because migrate needs the data to be 
+      // associative arrays and not stdClass objects. 
+      $row = json_decode(file_get_contents($filename), true); // sets the title, body, etc. 
+      $row['json_filename'] = $filename;
+ 
+      // migrate needs the date as a UNIX timestamp 
+      try { 
+        // put your source data's time zone here, or just use strtotime() if it's already in UTC 
+        $d = new \DateTime($date, new \DateTimeZone('America/Los_Angeles')); 
+         $row['date'] = $d->format('U'); 
+      } catch (\Exception $e) { 
+        echo "Exception: " . $e->getMessage() . "\n"; 
+        $row['date'] = time();  // fallback – set it to now so we don't have errors 
+      } 
+ 
+      // append it to the array of rows we can import 
+      $rows[] = $row; 
+    } 
+ 
+    // Migrate needs an Iterator class, not just an array
+    return new \ArrayIterator($rows); 
+  } 
+} 
+```
+
+Our Source plugin class extendsSourcePluginBase. This means we need to create our own iterator object, which provides all the rows to import. In the `initializeIterator()` method, we loop through the JSON files on the file system and do some work on their contents:
+
+- Parse the contents into an associative array
+- Convert the date string to a Unix timestamp
+- Save the filename into the array so we can use it later
+- Add the resulting array to our $rows array
+
+Once we have looped through all the files, we create anArrayIteratorfrom the result. Migrate needs an iterator instead of a simple array. Fortunately, PHP's built-in \ArrayIterator class does the trick.
+
+Up in the `prepareRow()` method, we don't need to do much. The JSON decoding has already been done in `initializeIterator()`. All we do here is truncate the title field if it's longer than the maximum 255 characters of a standard Drupal node title. (We could have even done that in `initializeIterator()` if we had wanted.)
+
+Why did we do the decoding in `initializeIterator()` instead of doing all the transformation work in `prepareRow()`? During my initial testing, the getIds() method was throwing errors if the ID fields weren't set in in `initializeIterator()`, so I saved myself a headache and moved most of the processing into in `initializeIterator()`.
+
+Now we can enable our new module:
+
+```
+drush en-y json-migrate
+```
+
+Running `drush migrate-status` will show us our new migration:
+
+```
+Group: JSON Example (json_example) Status Total Imported Unprocessed Last imported
+json_page                          Idle   123   0        123
+```
+
+And we can run our migration with:
+
+```
+drush migrate-import json_page
+```
+
+This will loop through each of the JSON files and import the data. Go to Admin -> Content of your Drupal site. The new nodes should be visible there.
+
+Happy coding!

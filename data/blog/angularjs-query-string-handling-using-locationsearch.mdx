@@ -1,0 +1,238 @@
+---
+title: AngularJS Query String handling using $location.search()
+summary: "A tutorial describing how to set up two-way binding between the browser's query string parameters and the state of $location.search() in AngularJS"
+date: 2015-08-11T12:00:00Z
+lastmod: 2017-06-09
+tags:
+  - web dev
+  - angular
+  - angularjs
+images:
+  - /static/images/blog/angularjs-logo-blog-header.jpg
+---
+
+_Note: This article refers to AngularJS v1.x only. If you're working with Angular 2 or above, take a look at the [ActivatedRoute class](https://angular.io/docs/ts/latest/api/router/index/ActivatedRoute-interface.html), which can provide similar functionality._
+
+Many times while developing an Angular app, you will find yourself displaying data in tables and filtering or sorting it. There are many tutorials out there to show you how to use Angular filters and ng-repeat to do this.
+
+But what if you want some way to record the state of the page? Say your users want to bookmark a set of filters, or email a link to their coworkers?
+
+### Enter $location
+
+Angular's $location service provides many useful methods for parsing and changing the URL in the browser's address bar. One of these methods, search(), provides a getter and setter for query string parameters. We will use this power to update the address bar in real time.
+
+### Our Demo App
+
+We start with a simple Angular app that shows a table. The example here imagines that the app is retrieving data from an API, and that filtering will happen on the server-side. Therefore, I am not using client-side table filtering systems like Smart Table.
+
+Our Angular application, with a single route:
+
+```javascript
+'use strict';
+var app = angular
+  .module('ngdemoApp', [
+    'ngRoute'
+  ])
+  .config(function ($routeProvider) {
+    $routeProvider
+      .when('/', {
+        templateUrl: 'views/main.html',
+        controller: 'MainCtrl',
+        controllerAs: 'main'
+      })
+      .otherwise({
+        redirectTo: '/'
+      });
+  });
+```
+
+Our main view:
+
+```html
+<h1>Angular Query String Demo</h1>
+<table class="table">
+    <tr>
+        <th>Author</th>
+        <th>Title</th>
+    </tr>
+    <tr>
+        <td><input type="text" ng-model="filters.author" ng-model-options="{ debounce: 250 }" ng-change="update()"></td>
+        <td><input type="text" ng-model="filters.title" ng-model-options="{ debounce: 250 }" ng-change="update()"></td>
+    </tr>
+    <tr ng-repeat="book in books">
+        <td>{{ book.author }}</td>
+        <td>{{ book.title }}</td>
+    </tr>
+</table>
+```
+
+Notice that the table columns have filter boxes which bind to properties of a scope variable called `$scope.filters`. When the user changes their contents, they call a method `$scope.update()`.
+
+Our controller:
+
+```javascript
+'use strict';
+angular.module('ngdemoApp')
+    .controller('MainCtrl', function ($scope, BookService) {
+ 
+        // a simple filter object, with default filter values
+        $scope.filters = { author: '', title: '' };
+ 
+        $scope.update = function() {
+            BookService.all($scope.filters).then(function(data) {
+                $scope.books = data;
+            });
+        }
+        $scope.update();
+    });
+```
+
+Notice that the controller is using a service called BookService to return the data. We won't get into the exact implementation of this. Let's pretend it calls an API to get the data from a database. Its all() method takes the filter object as an argument and returns an Angular promise.
+
+If you're curious as to how I wrote the sample service, [check out the code on GitHub](https://github.com/kdechant/ng-querystring-demo).
+
+If we run our application, we'll see that it does filter the data based on what we type in the search boxes. But, let's say my friend is a big Tolkien fan and I wanted to email him a link to a list of just the Tolkien books. So far, I don't have a way to do this. So, let's fix that.
+
+### Saving filters to the query string
+
+It's an easy matter to use Angular's $location service to read and write query string variables to the address bar. We can do this my making a few quick adjustments to our application.
+
+In the controller, we can use $location.search() to read from the query string when we arrive at the page, and write to it when we update a filter:
+
+```javascript
+...
+    .controller('MainCtrl', function ($scope, $location, BookService) {
+ 
+        // a simple filter object, with default filter values
+        $scope.filters = { author: '', title: '' };
+ 
+        // read filters from the query string, and use them to
+        // replace the default filters
+        var qs = $location.search();
+        for (var fld in $scope.filters) {
+            if (fld in qs) {
+                $scope.filters[fld] = qs[fld];
+            }
+        }
+ 
+        $scope.update = function(fld) {
+            // update the query string with the new filters
+            if ($scope.filters[fld] != '') {
+                $location.search(fld, $scope.filters[fld]);
+            } else {
+                // remove empty filters
+                $location.search(fld, null);
+            }
+        }
+...
+```
+
+Note that `$location.search()` without arguments is a getter, which returns an object containing all the query string parameters. `$location.search()` with arguments is a setter, which will write to the query string. Passing null as the second argument causes the parameter to be removed from the query string. When we encounter a blank filter field, we use using this ability to keep the query string clean.
+
+Now, when we type into the filter boxes, our app automatically updates the query string. Also, if we visit a link that contains a query string, its filters are instantly applied to the list.
+
+Note: `$location.search()` will cause the page to reload, i.e., the controller will reinitialize and run again from the beginning. This may not be what you're looking for if your page contains other data that you don't wish to reload. In that case, you may wish to research the "reloadOnSearch" option, which can be added to a route in app.js. This will prevent the page reload, and you will then have to reload the API data from within $scope.update().
+
+Be aware, however, that setting reloadOnSearch to true seems to have a side effect: the data won't refresh when you type directly into the address bar, until you hit the reload button manually.
+
+### Refactoring
+
+Everything we have so far works fine, but the logic is in the controller and is not very reusable. So, let's do some refactoring.
+
+#### Reading from the query string using a service
+
+To avoid having to repeat the same $location code in every controller, we can refactor the reading of $location.search() into a service.
+
+QueryStringService.js:
+
+```
+'use strict';
+ 
+// This service reads data from the query string into a filter object.
+app.service('QueryStringService', function ($location) {
+    this.getFilters = function(filterObj) {
+        var qs = $location.search();
+        for (var param in filterObj) {
+            if (param in qs) {
+                filterObj[param] = qs[param];
+            }
+        }
+        return filterObj;
+    };
+});
+```
+
+#### Wrapping the filter field in a directive
+
+First, we'll turn our filter fields from plain HTML into an Angular directive. The directive will be smart enough to update the query string any time the user changes the content of the field.
+
+The directive:
+
+```javascript
+'use strict';
+app.directive('filterField', function () {
+    return {
+        restrict: 'E',
+        scope: {
+            filters: '=',
+            field: '@'
+        },
+        template: '<input type="text" ng-model="filters[field]" ng-model-options="{ debounce: 250 }" ng-change="doFilter()">',
+        controller: function ($scope, $location) {
+            $scope.doFilter = function () {
+                // update the query string
+                if ($scope.filters[$scope.field] != '') {
+                    $location.search($scope.field, $scope.filters[$scope.field]);
+                } else {
+                    // remove from query string if empty
+                    $location.search($scope.field, null);
+                }
+            }
+        }
+    };
+});
+```
+
+Our updated view HTML:
+
+```html
+...
+    <tr>
+        <td><filter-field filters="filters" field="author"></filter-field></td>
+        <td><filter-field filters="filters" field="title"></filter-field></td>
+    </tr>
+...
+```
+
+Our refactored controller:
+
+```javascript
+'use strict';
+angular.module('ngdemoApp')
+    .controller('MainCtrl', function ($scope, $location, QueryStringService, BookService) {
+ 
+        // a simple filter object, with default filter values
+        var default_filters = { author: '', title: '' };
+ 
+        // read filters from the query string
+        $scope.filters = QueryStringService.getFilters(default_filters);
+ 
+        BookService.all($scope.filters).then(function(data) {
+            $scope.books = data;
+        });
+    });
+```
+
+Note that the controller now only calls a method on the QueryStringService to load the filters from the query string. It doesn't need the `update()` method at all any more, because the filter-field directive now handles writing to the query string.
+
+You might be tempted to further simplify this by reading the $location from within the directive as well. However, this can cause a race condition, where the initial data load is already complete before the directive renders. In this case, the users will see the an unfiltered data set rather than the one they were expecting. For this reason, in this example I have kept the initial filter setup code in the controller.
+
+### Conclusion
+
+After our refactoring, we now have a simple, reusable way to implement filter text fields in any table in our application.
+
+If our table included sort buttons or pagination, we could easily add those options to the query string using the same methods.
+
+[Complete demo code is available on GitHub](https://github.com/kdechant/ng-querystring-demo).
+
+Happy coding!

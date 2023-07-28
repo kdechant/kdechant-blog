@@ -1,0 +1,90 @@
+---
+title: URL Routing for a Decoupled App, with Angular 2 and Django
+summary: "Making the Django Router and Angular Router work together in the same project."
+date: 2016-07-23T12:00:00Z
+tags:
+  - web dev
+  - python
+  - angular
+images:
+  - /static/images/blog/angular-django-api.png
+---
+
+Lately, I have worked on a few projects where a single-page Angular app is contained within a site built on a server-side framework like Django. One of the challenges is to get their URLs to play nicely together.
+
+Say you have a project with an Angular 2 front end and an API back end using the Django Rest Framework. Further, imagine that your Angular 2 page is also served from within the Django app. Your URL structure might look like this:
+
+`/` - renders an index.html file that contains the Angular 2 app  
+`/api/books`- JSON books list rendered on the server side by Django  
+`/api/books/1` - JSON book detail data, also rendered on the server side
+
+For the purpose of this tutorial, let's assume that the two `/api` URLs are REST API endpoints which are rendered on the server side by Django. We can imagine that the Angular 2 app might call these endpoints to retrieve data, though the details of the API call are beyond the scope of this article.
+
+In your urls.py module in your Django project, this would look something like the following:
+
+```python
+urlpatterns = [
+    url(r'^$', views.index, name='index'),
+    url(r'^api/books', views.book_list, name='book_list'),
+    url(r'^api/books/<P<id>\d+)/$', views.book_detail, name='book_detail'),
+]
+```
+
+NOTE: If you are using the Django Rest Framework to generate your API, your `/api/...` URLs would be built using one of the built-in Router classes. This logic is omitted here for simplicity.
+
+However, that's not the end of the story regarding URLs. Angular 2 uses HTML5 pushstate within its router, to provide clean URLs without the hash style commonly seen in Angular 1. This means that you might have a URL within Angular like `/books/42`.
+
+Within your single-page app, Angular will handle updating the address bar to the correct URL. This means that the single-page app will work as long as the user keeps her browser open. But, what happens when she bookmarks a URL within the single-page app and comes back to it later? Or she follows a link given to her by someone else?
+
+For incoming traffic, the application will handle URLs like this:
+
+1.  `/` - Django routes this to the home page
+2.  `/api/books` - Django shows the list of books from the API
+3.  `/books/42` - This route is known to Angular but not to Django. Django will show a 404!
+4.  `/bogus-page` - A real 404\. Django renders the 404 page, as expected.
+
+Obviously, the third route is not being handled the way we want. Let's fix this. We need to add a catch-all URL pattern to Django's urls.py:
+
+```python
+urlpatterns = [
+    … (your other routes here) …
+ 
+    # catch-all pattern for compatibility with the Angular routes. This must be last in the list.
+    url(r'^(?P<path>.*)/$', views.index),
+]
+```
+
+Also, in your views.py file, find the view that renders the 'index' page, and make sure it is able to accept the 'path' keyword argument:
+
+Views.py:
+
+```python
+def index(request, path=''):
+    """
+    Renders the Angular2 SPA
+    """
+    return render(request, 'index.html')
+```
+
+Note: you don't actually need to do anything with the path argument. It just needs to exist so that Django won't throw an error when it's present.
+
+Now, incoming traffic will be routed like this:
+
+1.  `/` - Django routes this to the home page
+2.  `/api/books` - Django shows the list of books from the API
+3.  `/books/42` - Matches the new Django catch-all route, and is sent to Angular. The Angular 2 router shows the detail for book #42 within the single-page app.
+4.  `/bogus-page` - A real 404\. Django still passes this on to Angular, and Angular must show a 404 page.
+
+That's more like it.
+
+## Limitations
+
+If any routes within the Angular app match the ones provided by Django, the Django routes will take precedence and make that page within the Angular app unreachable.
+
+Any unknown or incorrect URLs entered into the address bar will not show a Django 404 page. They will be sent into the Angular2 app, even if Angular doesn't have a matching route. You would need to provide a 404 page within the Angular app if you want to show a "page not found" message to the user.
+
+## Other Frameworks
+
+The concepts shown here work similarly with other server-side frameworks and CMSes like Drupal, Symfony, etc. Most of these systems should allow you to create a catch-all route in their URL configuration. In Drupal, for example, I have accomplished a similar setup using `hook_menu`.
+
+Happy coding!

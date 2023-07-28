@@ -1,0 +1,151 @@
+---
+title: Instant reload with Django, NPM, and Browsersync
+summary: ""
+date: 2016-02-23T12:00:00Z
+tags:
+  - web dev
+  - django
+  - node
+  - python
+  - css
+  - html
+---
+
+**Note: This article documents an ambitious idea I had, which turned out to be a bit unwieldy in practice. This is historical content, and I'm not going to update it for newer versions of Node, Python, or Django.**
+
+This tutorial shows how to automate CSS compilation and instantly reload the browser when files change. This includes reloading even when back end files change.
+
+### Objectives
+
+In this post, we will be setting up an automated local build environment with the following goals in mind:
+
+*   A single command to start the dev server and start watching for file changes
+*   Automatic compilation of Sass stylesheets into CSS
+*   Automatic reload of the CSS without reloading the full page in the browser
+*   Automatic reload of the browser tab when a Python, JavaScript, or HTML file changes
+*   The ability to run all tasks using NPM, without needing another task runner like Grunt or Gulp
+
+### Setup
+
+Before we can set up the build scripts, we will need the following:
+
+*   Python and Pip installed
+*   A Django site. The Polls site from the [Django Tutorial](https://docs.djangoproject.com/en/1.9/intro/tutorial01/) will work fine.
+*   Node and NPM installed
+
+### Configuring the NPM task runner
+
+#### Creating your package.json
+
+Change directory into the root of your Django project. This should be the same folder where manage.py is located. Then, initialize your NPM project and install some packages:
+
+```bash
+npm init
+npm install node-sass concurrently browser-sync --save-dev
+```
+
+#### What these packages do
+
+**node-sass** is the Sass compiler for NPM.
+
+**concurrently** improves NPM's handling of parallel task execution.
+
+**browser-sync** is a lightweight development server which provides live-reload capability. We will use it in tandem with the Django development server.
+
+#### Configuring the NPM scripts
+
+Now that we have our packages installed, there will be a package.json file in our project folder. Edit it in your favorite text editor and add the following:
+
+```javascript
+{
+  ...
+  "scripts": {
+    "css-compile": "node-sass myapp/static/scss -o myapp/static/css",
+    "css-watch": "node-sass myapp/static/scss -o myapp/static/css --watch",
+    "browser-sync": "browser-sync start --files \"myapp/static/css/*.css, myapp/static/js/*.js, myapp/**/*.py, myapp/templates/*.html\" --proxy 127.0.0.1:8000 --reload-delay=300 --reload-debounce=500",
+    "start": "concurrently --kill-others \"npm run css-watch\" \"python manage.py runserver\" \"npm run browser-sync\" "
+  },
+  ...
+}
+```
+
+You will need to adjust the file paths in the 'css-compile', 'css-watch', and 'browser-sync' lines to match your project.
+
+### Running your new environment
+
+This package.json file includes several separate NPM tasks like 'css-watch' and 'browser-sync'. The **concurrently** package lets us wrap all these commands, along with the Django development server, into one command to rule them all, `npm start`.
+
+If you are using Python's virtualenv, you will need to activate your virtual environment before running `npm start`.
+
+Type `npm start` into your command prompt. This will start watching your project files for changes, and a browser window will appear with the front page of your site. Whenever you edit a Python, JavaScript, or HTML file, the page will reload automatically. When you edit an SCSS file, your stylesheets will be compiled into CSS, and the CSS in the browser will reload, without having to reload the entire page.
+
+#### Browsersync and the Django development server
+
+[Browsersync](https://www.browsersync.io) injects a JavaScript snippet into the body tag of the pages it serves, which sets up the live reload. It can't serve a Python application, however. The good news is that it has a built-in proxy, which we're using to relay requests to the Django development server.
+
+Here, we have given Browsersync a few command-line options:
+
+*   `--files \"myapp/static/css/*.css, myapp/**/*.py, myapp/templates/*.html\"`: This option tells Browsersync to watch all CSS, Python, and HTML files in the specific locations listed. You will probably need to update these paths, or add new ones, to match your project.
+*   `--proxy 127.0.0.1:8000`: This tells Browsersync to proxy its requests to the Django development server
+*   `--reload-delay=300`: This makes Browsersync wait for 300 milliseconds after it detects a file change before reloading the page. This prevents race conditions between Browsersync and Python. Without this, you may see pages fail to load when you edit a Python file. If your browser starts to reload and the loading spinner just spins forever, increase this value, then stop and start the npm task.
+*   `--reload-debounce=500`: This prevents the page from reloading more than twice a second, in case you have fast fingers.
+
+#### Troubleshooting
+
+**The server runs, but nothing happens when I edit a file**
+
+Check the paths to the files in your package.json and make sure they match the locations of the files in your projects. You may need to add or remove paths.
+
+**"Unable to determine the domain name" error with Browsersync**
+
+If Browsersync fails with an error "Unable to determine the domain name", you need to inspect the command arguments. Use '127.0.0.1' instead of 'localhost', don't include the protocol, and don't enclose the address in quotes.
+
+*   Bad: `--proxy localhost:8000` (this should work but doesn't, [possibly due to this bug)](https://github.com/xomaczar/ember-cli-styles-reloader/issues/18)
+*   Bad: `--proxy '127.0.0.1:8000'`
+*   Bad: `--proxy https://127.0.0.1:8000`
+*   Good: `--proxy 127.0.0.1:8000`
+
+**NPM command errors**
+
+This setup is designed to use the project versions of the node packages, rather than the global versions. On some systems, you may see errors that the 'node-sass' or 'browser-sync' commands are not found. If this happens, add the following to your package.json:
+
+```js
+{
+  ...
+  "bin": {
+    "node-sass": "/.bin/node-sass"
+    "browser-sync": "/.bin/browser-sync"
+  },
+  ...
+}
+```
+
+### What about Apache and mod_wsgi?
+
+If you are hosting your local development site using Apache and mod_wsgi, you should be able to use most of the techniques shown in this post. You would need to remove the "python manage.py runserver" command from the 'npm start' line in package.json, and change the proxy address provided to Browsersync. Your package.json file might look something like this, assuming 'myapp.dev' is the address of your local development site:
+
+```js
+{
+  ...
+  "scripts": {
+    ...
+    "browser-sync": "browser-sync start --files \"myapp/static/css/*.css, myapp/**/*.py, myapp/templates/*.html\" --proxy myapp.dev --reload-delay=300 --reload-debounce=500",
+    "start": "concurrently --kill-others \"npm run css-watch\" \"npm run browser-sync\" "
+  },
+  ...
+}
+```
+
+### Next steps
+
+We could easily add JavaScript minification, CSS minification, image processing, etc. by adding additional commands to `npm start`.
+
+### Compatibility
+
+This setup has been tested with Django 1.9 and NPM 3.x on Windows, Ubuntu/Mint, and OSX.
+
+### Conclusion
+
+The ideas shown here should also work with platforms other than Django. You would only need to adjust file paths and replace the Django dev server command with a different command.
+
+Happy coding!

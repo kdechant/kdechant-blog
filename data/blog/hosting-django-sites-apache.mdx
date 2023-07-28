@@ -1,0 +1,183 @@
+---
+title: Hosting Django sites with Apache and mod_wsgi
+summary: "Hosting a Django site can be a bit of a puzzle, especially if you're used to PHP and Apache. This article shows how to configure Apache to host a Django site."
+date: 2017-06-22T12:00:00Z
+tags:
+  - web dev
+  - python
+  - devops
+---
+
+Django is a fantastic, powerful web development framework. It's great for development, but hosting it can be a bit of a puzzle. WSGI? Daemon mode? What's going on here?
+
+This article will show you the basics of getting your Django sites running on an Ubuntu server running Apache 2.4.x, using WSGI.
+
+## Objectives
+
+In this article, we will see how to:
+
+*   Set up a Django site on an Apache virtualhost, using WSGI
+*   Use virtualenv to give each site its unique set of Python packages
+*   Use WSGI in Daemon mode
+*   Run multiple Django sites on one server
+*   Deploy new code once we have a site running
+
+## WSGI? Great, another acronym!
+
+The Web Server Gateway Interface (WSGI) is a fast CGI interface for Python, similar to PHP's FPM or classic cgi-bin. It provides an interface where Apache can send requests for any URL that requires Python server-side processing.
+
+## Using Virtualenv
+
+This tutorial assumes you're using the excellent [virtualenv](https://virtualenv.pypa.io/en/stable/) package to keep the dependencies for each project separate. That's great in development, but Apache doesn't know how to "source" a virtual environment before starting the WSGI process. Thus, you need to supply the full path to the Python executable **inside** the virtual environment.
+
+You'll notice the string "venv" in some of the Python paths. That's a common name for the virtual environment folder. If you chose a different name when you created your virtual environment, replace the instances of "venv" below with the name you chose.
+
+This post is not intended to be a tutorial on setting up virtualenv. You can find that at the [Hitchhiker's Guide to Python](http://python-guide-pt-br.readthedocs.io/en/latest/dev/virtualenvs/), among other places.
+
+## Installing packages
+
+You'll need to install the following packages using your operating system's package manager:
+
+Debian/Ubuntu:
+
+*   apache2
+*   python and python-dev, or python3 and python3-dev (required to install some packages with pip)
+*   libapache2-mod-wsgi (Python 2) or libapache2-mod-wsgi-py3 (for Python 3)
+
+RedHat/CentOS
+
+*   httpd version 2.4
+*   python and python-dev, or python3 and python3-dev (required to install some packages with pip)
+*   mod_wsgi (for Python 2) or python3-mod_wsgi (for Python 3)
+
+You may need some additional packages, depending on which Python packages your site uses. I've needed things like libssl-dev/openssl-devel
+
+## Set up the Apache virtualhost
+
+Running a site through WSGI takes a few more steps than the typical Apache virtualhost configuration. You need to specify paths to your WSGI file and to Python itself. Note that we use the paths to the virtual environment here, rather than the paths to the global install of Python.
+
+`/etc/apache2/sites-available/mysite.conf`:
+
+```
+<VirtualHost *:80> 
+ ServerName mysite.example.com 
+ DocumentRoot /var/www/vhosts/mysite 
+ WSGIScriptAlias / /var/www/vhosts/mysite/myproject/wsgi.py 
+ 
+ # adjust the following line to match your Python path 
+ WSGIDaemonProcess mysite.example.com processes=2 threads=15 display-name=%{GROUP} python-home=/var/www/vhosts/mysite/venv/lib/python3.5 
+ WSGIProcessGroup mysite.example.com 
+ 
+ <directory /var/www/vhosts/mysite> 
+   AllowOverride all 
+   Require all granted 
+   Options FollowSymlinks 
+ </directory> 
+ 
+ Alias /static/ /var/www/vhosts/mysite/static/ 
+ 
+ <Directory /var/www/vhosts/mysite/static> 
+  Require all granted 
+ </Directory> 
+</VirtualHost> 
+```
+
+Notice the WSGIDaemonProcess and WSGIProcessGroup settings, which provide the daemon configuration for the site. Also notice the "Alias /static/" line, which points at the "static" folder inside your site. This must match the folder where `python manage.py collectstatic` aggregates the static files from your apps. If you miss this step, you'll see a site full of broken images and missing CSS files.
+
+After creating the virtualhost file, you need to enable it. If you're using a Debian or Ubuntu or a related distro, run:
+
+```
+sudo a2ensite mysite
+sudo apachectl restart
+```
+
+Other distributions like CentOS might need to copy a file or create a symlink manually to enable the site.
+
+## Configuring WSGI
+
+Your Django application comes with a wsgi.py file out of the box. It's in the main project directory, next to your settings.py file. I've found that the standard wsgi.py needs a few updates to work cleanly with Apache. Edit your wsgi.py so it looks like the following:
+
+```python
+"""
+exposes the WSGI callable as a module-level variable named ``application``. 
+For more information on this file, see 
+https://docs.djangoproject.com/en/1.9/howto/deployment/wsgi/ 
+""" 
+import os 
+import time 
+import traceback 
+import signal 
+import sys 
+ 
+from django.core.wsgi import get_wsgi_application 
+ 
+sys.path.append('/var/www/vhosts/mysite') 
+# adjust the Python version in the line below as needed 
+sys.path.append('/var/www/vhosts/mysite/venv/lib/python3.5/site-packages') 
+ 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myproject.settings") 
+ 
+try: 
+    application = get_wsgi_application() 
+except Exception: 
+    # Error loading applications 
+    if 'mod_wsgi' in sys.modules: 
+        traceback.print_exc() 
+        os.kill(os.getpid(), signal.SIGINT) 
+        time.sleep(2.5) 
+```
+
+Note the file paths, which need to match the paths on your server, including the Python version. You also need to put your project's name in the value of DJANGO_SETTINGS_MODULE. That's the project name, not the name of one of your apps.
+
+## Setting up a second virtual host
+
+The second Virtual Host is set up very similarly to the first. The main differences are the server names, paths, and the location of the wsgi.py file.
+
+`/etc/apache2/sites-available/myothersite.conf`:
+
+```
+<VirtualHost *:80> 
+ ServerName myothersite.example.com 
+ DocumentRoot /var/www/vhosts/myothersite 
+ WSGIScriptAlias / /var/www/vhosts/myothersite/myotherproject/wsgi.py 
+
+ WSGIDaemonProcess myothersite.example.com processes=2 threads=15 display-name=%{GROUP} python-home=/var/www/vhosts/myothersite/venv/bin/python3.5 
+ WSGIProcessGroup myothersite.example.com 
+
+ <directory /var/www/vhosts/myothersite> 
+   AllowOverride all 
+   Require all granted 
+   Options FollowSymlinks 
+ </directory> 
+
+ Alias /static/ /var/www/vhosts/myothersite/static/ 
+
+ <Directory /var/www/vhosts/myothersite/static> 
+  Require all granted 
+ </Directory> 
+</VirtualHost>
+```
+
+As before, you need to enable the new site and restart Apache before the site is usable.
+
+## Deploying code
+
+This article doesn't intend to provide opinions on how to deploy your code. Whether you're using a CI process or a simple "git pull", you only need to know one special thing about deploying Django sites on Apache:
+
+**Restart Apache after updating any Python code!**
+
+This one gets me sometimes. The WSGI process only interprets the Python code once, when you start Apache. Any time you change Python code, run `apachectl restart` or the appropriate restart command for your server. Then you'll see your new code working. This only applies to changes in the actual Python code. Deploying HTML, CSS, JavaScript, and images doesn't require an Apache restart.
+
+## Limitations
+
+### Don't mix major Python versions
+
+This setup does not allow hosting Python 2 and Python 3 sites on the same server. True, each project can have its own Python executable using virtualenv. But Apache doesn't make this quite as simple as Python does.
+
+During your package install, you'll need to choose either the Python 2 or Python 3 version of the Apache2 WSGI module. (On Debian/Ubuntu, these are called libapache2-mod-wsgi or libapache2-mod-wsgi-py3.) If you install the Python 2 version, you'll only be able to host Python 2 sites with Apache. If you install the Python 3 version, you'll only be able to host Python 3 sites.
+
+### Windows support
+
+Python itself runs great on Windows. But, I haven't gotten WSGI to work on Windows yet. It's theoretically possible, but you'd have to be very careful about getting a version of Apache and a version of Python that were compiled using the same compiler (VC11, VC14, etc.).
+
+If you used a package like XAMPP or WampServer to install Apache, these come with a specific pre-compiled version of Apache. It may be difficult to find a binary of mod_wsgi that matches the same compiler used to build the Apache binary. You may need to install a standalone copy of Apache on your Windows machine in order to get WSGI working.

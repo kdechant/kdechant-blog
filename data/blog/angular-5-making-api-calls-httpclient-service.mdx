@@ -1,0 +1,511 @@
+---
+title: "Angular 5: Making API calls with the HttpClient service"
+summary: "A tutorial for upgrading Angular API calls in Angular 5."
+date: 2017-11-27T12:00:00Z
+tags:
+  - web dev
+  - angular
+  - typescript
+---
+
+**Note to readers, May 18, 2018: the code in this post is built for Angular 5.x. The same techniques will work with Angular 6 as long as you use the rxjs-compat Node package. To see how to upgrade this code for full, native RxJS compatibility, see [this post](/blog/angular-6-upgrading-api-calls-rxjs-6).**
+
+Angular 4.3 introduced a new HttpClient service, which is a replacement for the Http service from Angular 2. It works mostly the same as the old service, handling both single and concurrent data loading with RxJs Observables, and writing data to an API.
+
+As of Angular 5.0, the older Http service still works, but it's deprecated and has been removed in Angular 6.0. The code samples in this post are compatible with Angular 4.3 and 5.x (and 6.x with rxjs-compat). If your project is still using Angular 4.2 or lower, including Angular 2, see [my previous posts on making API calls with the Http service](/blog/angular-2-http-observables-and-concurrent-data-loading).
+
+### About Observables and the Http service
+
+Many JavaScript developers should be familiar with using Promises to load data asynchronously. Observables are a more feature-rich system, which emit data in packets. A single Observable object can emit a single packet of data, or can emit a stream containing multiple discrete packets. Other objects can subscribe to these Observables and run a callback each time data is emitted. (In this example using the HttpClient service, each Observable will only emit data once, but a different type of Observable could emit data more than once.)
+
+The Observable classes in Angular are provided by the [ReactiveX library](http://reactivex.io/).
+
+The HttpClient service in Angular 4.3+ is the successor to Angular 2's Http service and the $http service from AngularJS 1.x. Instead of returning a Promise, its http.get() method returns an Observable object.
+
+### Try this at home!
+
+The [source code for this demo application is available on GitHub](https://github.com/kdechant/angular5-httpclient-demo). That repository contains a simple API written in Express and a single-page Angular application which calls the API to read and write data.
+
+This tutorial uses Webpack to manage assets. Angular 5 still supports SystemJS and you can use that instead if you prefer. For an example of how to configure SystemJS to work with HttpClient, see [what it would look like if we upgraded my old Angular 2/4 demo app to Angular 5](https://github.com/kdechant/angular2-http-demo/tree/angular5).
+
+It's recommended that you try the [Angular Tutorial](https://angular.io/tutorial) first, for a basic overview of Angular architecture and Typescript.
+
+### The Back-End API
+
+The back-end for this app is a simple Express-based API that exposes the following endpoints:
+
+**GET /api/food**  
+Returns an array of all existing Food objects in JSON format.
+
+**GET /api/books**  
+Returns an array of all existing Book objects in JSON format.
+
+**GET /api/movies**  
+Returns an array of all existing Movie objects in JSON format.
+
+**POST /api/food**  
+Creates a new Food object in the back-end data store. Accepts a JSON object in the request body.  
+If successful, returns a `200 OK` response, containing a JSON object representing the data as saved on the server, including the auto-numbered ID
+
+**PUT /api/food/{food_id}**  
+Updates an existing Food object. Accepts a JSON object in the request body.  
+If successful, returns a `200 OK` response, containing a JSON object representing the data as saved on the server.
+
+**DELETE /api/food/{food_id}**  
+Deletes an existing Food object. Does not require a response body.  
+If successful, returns a `200 OK` response, containing a JSON object representing the Food object as it existed before it was deleted.
+
+The entire Express API code is as follows. (Portions omitted for brevity. [See the sample app for the full code](https://github.com/kdechant/angular5-httpclient-demo/blob/master/app.js).)
+```js
+
+
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+ 
+const app = express();
+app.use(express.static(__dirname));
+ 
+app.use(bodyParser.json()); // support json encoded bodies
+ 
+// some data for the API
+var foods = [
+  { "id": 1, "name": "Donuts" },
+  { "id": 2, "name": "Pizza" },
+  { "id": 3, "name": "Tacos" }
+];
+ 
+var books = [
+  { "title": "Hitchhiker's Guide to the Galaxy" },
+  { "title": "The Fellowship of the Ring" },
+  { "title": "Moby Dick" }
+];
+ 
+var movies = [
+  { "title": "Ghostbusters" },
+  { "title": "Star Wars" },
+  { "title": "Batman Begins" }
+];
+ 
+// the "index" route, which serves the Angular app
+app.get('/', function (req, res) {
+    res.sendFile(path.join(__dirname,'/dist/index.html'))
+});
+ 
+// the GET "books" API endpoint
+app.get('/api/books', function (req, res) {
+    res.send(books);
+});
+ 
+// the GET "movies" API endpoint
+app.get('/api/movies', function (req, res) {
+    res.send(movies);
+});
+ 
+// the GET "foods" API endpoint
+app.get('/api/food', function (req, res) {
+    res.send(foods);
+});
+ 
+// POST endpoint for creating a new food
+app.post('/api/food', function (req, res) {
+    // calculate the next ID
+    let id = 1;
+    if (foods.length > 0) {
+        let maximum = Math.max.apply(Math, foods.map(function (f) { return f.id; }));
+        id = maximum + 1;
+    }
+    let new_food = {"id": id, "name": req.body.name};
+    foods.push(new_food);
+    res.send(new_food);
+});
+ 
+// PUT endpoint for editing food
+app.put('/api/food/:id', function (req, res) {
+    let id = req.params.id;
+    let f = foods.find(x => x.id == id);
+    f.name = req.body.name;
+    res.send(f);
+});
+ 
+// DELETE endpoint for deleting food
+app.delete('/api/food/:id', function (req, res) {
+    let id = req.params.id;
+    let f = foods.find(x => x.id == id);
+    foods = foods.filter(x => x.id != id);
+    res.send(f);
+});
+ 
+// HTTP listener
+app.listen(3000, function () {
+    console.log('Example listening on port 3000!');
+});
+module.exports = app;
+```
+
+### Getting Started with HttpClient
+
+To use the Angular HttpClient, we need to inject it into our app's dependencies:
+
+```typescript
+import { NgModule, CUSTOM_ELEMENTS_SCHEMA }      from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { HttpClientModule } from '@angular/common/http';  // replaces previous Http service
+import { FormsModule } from '@angular/forms';
+import { DemoService } from './demo.service';   // our custom service, see below
+ 
+import { AppComponent }  from './app.component';
+ 
+@NgModule({
+    imports: [BrowserModule, FormsModule, HttpClientModule],
+    declarations: [AppComponent],
+    providers: [DemoService],
+    schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    bootstrap: [AppComponent]
+})
+export class AppModule { }
+```
+
+### Building the Angular Component
+
+Our demo app contains only one simple component, which contains a few elements to display some simple data. We will be loading data from a few JSON files, to simulate an API call.
+
+src/app/app.component.ts:
+
+```typescript
+import {Component} from '@angular/core';
+import {DemoService} from './demo.service';
+import {Observable} from 'rxjs/Rx';
+ 
+@Component({
+  selector: 'demo-app',
+  template:`
+  <h1>Angular 5 HttpClient Demo App</h1>
+  <h2>Foods</h2>
+  <ul>
+    <li *ngFor="let food of foods">{{food.name}}</li>
+  </ul>
+  `
+})
+export class AppComponent {
+ 
+  public foods;
+ 
+  constructor(private _demoService: DemoService) { }
+}
+```
+
+### Executing a Single HTTP Request
+
+We can use HttpClient to request a single resource, by using http.get. This is very similar to the Angular 2 Http service. Notice that we no longer have to `.map((res:Response) => res.json()` because HttpClient handles this for us:
+
+src/app/demo.service.ts:
+
+```typescript
+import {Injectable} from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import {Observable} from 'rxjs/Observable';
+ 
+const httpOptions = {
+    headers: new HttpHeaders({ 'Content-Type': 'application/json' })
+};
+ 
+@Injectable()
+export class DemoService {
+ 
+    constructor(private http:HttpClient) {}
+ 
+    // Uses http.get() to load data from a single API endpoint
+    getFoods() {
+        return this.http.get('/api/food');
+    }
+}
+```
+
+Our Demo service makes the HTTP request and returns the Observable object. To actually get the data from the service, we need to update our component to subscribe to the Observable:
+
+src/app/app.component.ts:
+
+```typescript
+...
+ 
+  ngOnInit() {
+    this.getFoods();
+  }
+ 
++  getFoods() {
++   this._demoService.getFoods().subscribe(
++      data => { this.foods = data},
++      err => console.error(err),
++      () => console.log('done loading foods')
++    );
++  }
+}
+```
+
+The subscribe() method takes three arguments which are event handlers. They are called onNext, onError, and onCompleted. The onNext method will receive the HTTP response data. Observables support streams of data and can call this event handler multiple times. In the case of the HTTP request, however, the Observable will usually emit the whole data set in one call. The onError event handler is called if the HTTP request returns an error code such as a 404. The onCompleted event handler executes after the Observable has finished returning all its data. This is less useful in the case of the Http.get() call, because all the data we need is passed into the onNext handler.
+
+For more information about the Observable object, see the [ReactiveX documentation](http://reactivex.io/documentation/observable.html).
+
+In our example here, we use the onNext handler to populate the component's 'foods' variable.
+
+The error handler just logs the error to the console. The completion callback runs after the success callback is finished.
+
+The handler functions are optional. If you don't need the error or completion handler, you may omit them. If you don't provide an error handler, however, you may end up with an uncaught Error object which will stop execution of your application.
+
+### Executing multiple concurrent HTTP requests
+
+Many times, we need to load data from more than one source, and we need to delay the post-loading logic until all the data has loaded. ReactiveX Observables provide a method called **forkJoin()** to wrap multiple Observables. Its subscribe() method sets the handlers on the entire set of Observables.
+
+To run the concurrent HTTP requests, let's add the following code to our service:
+
+src/app/demo.service.ts:
+
+```typescript
+...
+ 
+@Injectable()
+export class DemoService {
+ 
+    constructor(private http:HttpClient) {}
+ 
+    // Uses http.get() to load data from a single API endpoint
+    getFoods() {
+        return this.http.get('/api/food');
+    }
+ 
++    // Uses Observable.forkJoin() to run multiple concurrent http.get() requests.
++    // The entire operation will result in an error state if any single request fails.
++    getBooksAndMovies() {
++        return Observable.forkJoin(
++        this.http.get('/api/books'),
++        this.http.get('/api/movies')
++        );
++    }
+}
+```
+
+Notice that `forkJoin()` takes multiple arguments of type Observable. These can be Http.get() calls or any other asynchronous operation which implements the Observable pattern. We don't subscribe to each of these Observables individually. Instead, we subscribe to the "container" Observable object created by `forkJoin()`.
+
+When using `Http.get()` and `Observable.forkJoin()` together, the onNext handler will execute only once, and only after all HTTP requests complete successfully. It will receive an array containing the combined response data from all requests. In this case, our books data will be stored in `data[0]` and our movies data will be stored in `data[1]`.
+
+The onError handler here will run if **either** of the HTTP requests returns an error code.
+
+Next, we subscribe to the new method in our component:
+
+src/app/app.component.ts:
+
+```typescript
+import {Component} from '@angular/core';
+import {DemoService} from './demo.service';
+import {Observable} from 'rxjs/Rx';
+ 
+@Component({
+  selector: 'demo-app',
+  template:`
+  <h1>Angular 5 HttpClient Demo App</h1>
+  <p>This is a complete mini-CRUD application using an Express back-end. See src/app/demo.service.ts for the API call code.</p>
+  <h2>Foods</h2>
+  <ul>
+    <li *ngFor="let food of foods">{{food.name}}</li>
+  </ul>
+ 
++  <h2>Books and Movies</h2>
++  <p>This is an example of loading data from multiple endpoints using Observable.forkJoin(). The API calls here are read-only.</p>
++  <h3>Books</h3>
++  <ul>
++    <li *ngFor="let book of books">{{book.title}}</li>
++  </ul>
++  <h3>Movies</h3>
++  <ul>
++    <li *ngFor="let movie of movies">{{movie.title}}</li>
++  </ul>
+  `
+})
+export class AppComponent {
+ 
+  public foods;
++  public books;
++  public movies;
+ 
+  ...
+ 
+  getFoods() {
+    ...
+  }
+ 
++  getBooksAndMovies() {
++    this._demoService.getBooksAndMovies().subscribe(
++      data => {
++        this.books = data[0]
++        this.movies = data[1]
++      }
++      // No error or completion callbacks here. They are optional, but
++      // you will get console errors if the Observable is in an error state.
++    );
++  }
+ 
+}
+```
+
+### Writing data to the API
+
+To write data to our API, we need to add several new methods to our DemoService class:
+
+src/app/demo.service.ts:
+
+```typescript
+...
+ 
+@Injectable()
+export class DemoService {
+ 
+    constructor(private http:HttpClient) {}
+ 
+    ...
+ 
++    createFood(food) {
++        let body = JSON.stringify(food);
++        return this.http.post('/api/food/', body, httpOptions);
++    }
++
++    updateFood(food) {
++        let body = JSON.stringify(food);
++        return this.http.put('/api/food/' + food.id, body, httpOptions);
++    }
++
++    deleteFood(food) {
++        return this.http.delete('/api/food/' + food.id);
++    }
+ 
+}
+```
+
+Notice that our createFood(), updateFood(), and deleteFood() methods use API endpoints which return the saved object in JSON format. Returning the object when creating, updating, or deleting is a nice convenience for the developer of the front-end application. Not all APIs return this data. Some may return a different status code, some XML data, or nothing at all. Consult the documentation for your API to determine what the response format will look like.
+
+#### Possible bug in Firefox
+
+At the time of this writing, the API calls on one of my projects were failing when run in Firefox. It seems that Angular 2 was not sending the `Content-type: application/json` headers with the requests. If your API supports this, you might be able to work around the problem by changing your API URLs to include the `.json` extension (e.g., `/api/food/1.json`).
+
+This seems to be Firefox specific and does not affect Chrome or Edge.
+
+### Creating and Saving Data from Our Component
+
+Now that we have the service in place, we can add some basic CRUD features to our AppComponent.
+
+src/app/app.component.ts:
+
+```typescript
+import {Component} from '@angular/core';
+import {DemoService} from './demo.service';
+import {Observable} from 'rxjs/Rx';
+ 
+@Component({
+  selector: 'demo-app',
+  template:`
+  <h1>Angular 5 HttpClient Demo App</h1>
+  <p>This is a complete mini-CRUD application using an Express back-end. See src/app/demo.service.ts for the API call code.</p>
+  <h2>Foods</h2>
+  <ul>
+-    <li *ngFor="let food of foods">{{food.name}}</li>
++    <li *ngFor="let food of foods"><input type="text" name="food-name" [(ngModel)]="food.name">
++      <button (click)="updateFood(food)">Save</button>
++      <button (click)="deleteFood(food)">Delete</button>
++    </li>
+  </ul>
++  <p>Create a new food: <input type="text" name="food_name" [(ngModel)]="food_name"><button (click)="createFood(food_name)">Save</button></p>
+ 
+  <h2>Books and Movies</h2>
+  ...
+  `
+})
+export class AppComponent {
+ 
+  public foods;
+  public books;
+  public movies;
+ 
++  public food_name;
+ 
+  ...
+ 
+  getFoods() {
+    ...
+  }
+ 
+  getBooksAndMovies() {
+    ...
+  }
+ 
++  createFood(name) {
++    let food = {name: name};
++    this._demoService.createFood(food).subscribe(
++       data => {
++         // refresh the list
++         this.getFoods();
++         return true;
++       },
++       error => {
++         console.error("Error saving food!");
++         return Observable.throw(error);
++       }
++    );
++  }
++
++  updateFood(food) {
++    this._demoService.updateFood(food).subscribe(
++       data => {
++         // refresh the list
++         this.getFoods();
++         return true;
++       },
++       error => {
++         console.error("Error saving food!");
++         return Observable.throw(error);
++       }
++    );
++  }
++
++  deleteFood(food) {
++    if (confirm("Are you sure you want to delete " + food.name + "?")) {
++      this._demoService.deleteFood(food).subscribe(
++         data => {
++           // refresh the list
++           this.getFoods();
++           return true;
++         },
++         error => {
++           console.error("Error deleting food!");
++           return Observable.throw(error);
++         }
++      );
++    }
++  }
+ 
+}
+```
+
+You'll notice that we added some basic form fields and buttons to the template, and new methods `createFood()`, `updateFood()`, and `deleteFood()` to the component class. These are called when users click the buttons in the template, and handle saving and deleting the data.
+
+For simplicity, I have used a simple JavaScript `confirm()` dialog as a delete confirmation. An enhancement might be to implement a nicer-looking dialog using another Angular component.
+
+#### Can we use Observable.forkJoin() when writing to an API?
+
+It's theoretically possible, but I wouldn't.
+
+If you use `forkJoin()` to run multiple data-saving requests, it could have unpredictable results. `forkJoin()` will cancel all the requests if the first one returns an error. However, if one request completes successfully while a later one fails, your data could end up in a broken or partially-saved state. It seems best to use parallel API calls only when reading data.
+
+To write multiple types of data to an API, try one of the following workflows:
+
+1.  Chain the API calls, calling each one after the previous one completes successfully, or
+2.  Revise your API to accept a single, larger data object, and save each piece of that larger object within the back-end code
+
+### Want More Angular?
+
+See the next part in my series of posts about Angular API calls, showing [API authentication using Django Rest Framework and JSON Web Tokens](/blog/angular-api-calls-django-authentication-jwt).
+
+Looking for more examples of Angular API calls using HttpClient and ForkJoin? [See how I used Angular, Django Rest Framework, HttpClient, and ForkJoin to rebuild a classic text adventure game](/blog/angular-text-adventure-part-3-the-game-data-models).
+
+[See how to upgrade the code samples in this post for full, native compatibility with RxJS 6](/blog/angular-6-upgrading-api-calls-rxjs-6)
+
+Happy coding!

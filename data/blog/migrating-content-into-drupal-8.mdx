@@ -1,0 +1,51 @@
+---
+title: Migrating Content into Drupal 8
+summary: "Getting started with Drupal 8's built-in Migrate framework."
+date: 2014-11-29T12:00:00Z
+tags:
+  - web dev
+  - drupal
+  - php
+images:
+  - /static/images/blog/drupal_8_logo_stacked.png
+---
+
+**Note: This article is historical content. It will not be updated for Drupal 9+**
+
+Drupal 8 includes a powerful built-in migration system for importing content into your site. It is designed to handle data from Drupal 6 or 7, and much more. It is built around a plugin-based architecture, which allows importing of data from any external data source if you write your own source plugin.
+
+### History
+
+When Drupal 7 was released, it came with an upgrade script that would convert a Drupal 6 database into a Drupal 7 database. For Drupal 8, the core team decided against this approach, in favor of creating a more flexible migration module.
+
+The Drupal 7 migration infrastructure expanded with the release of the Migrate and Migrate D2D contrib modules, used for importing data from various data sources, including Drupal 6\. In Drupal 8, the Migrate module is in Core. It is listed as experimental and features may change between minor releases.
+
+The team developing the Migrate modules maintains a group on Drupal.org. For more information about the status of these modules, visit the [IMP project on Drupal.org](https://groups.drupal.org/imp).
+
+### Migrations in Core
+
+Drupal 8 includes two core modules:
+
+**Migrate** - A base module for creating your own custom migrations. This module provides the core migration architecture, but does not define any usable migrations itself.
+
+**Migrate Drupal**, a module containing migration definitions and source plugins for migrating content from Drupal 6 to Drupal 8\. This will eventually support Drupal 7 as well.
+
+### Other components
+
+In addition to the core modules above, there are several contrib modules designed to enhance the migration workflow. As of Drupal 8.2, these remain in contrib space and have not been added to Core.
+
+The **[Migrate Plus](https://www.drupal.org/project/migrate_plus)** module provides support for grouping of migrations, and also some handy examples of migration plugins and configuration. It is a dependency for the code samples below.
+
+The **[Migrate Tools](https://www.drupal.org/project/migrate_tools)** module provides Drush integration for running migrations from the command line.
+
+The **[Migrate Upgrade](https://www.drupal.org/project/migrate_upgrade)** module provides Drush integration for importing data from Drupal 6 and 7.
+
+### Using the built-in migrations from Drupal 6 or 7
+
+The migration plugins built into Migrate Drupal and Migrate Upgrade can handle a migration of a Drupal 6 or 7 site to Drupal 8\. The documentation for [Migrate Upgrade](https://www.drupal.org/project/migrate_upgrade) contains instructions for using this feature.
+
+### Writing a custom migration
+
+The built-in migrations are fine for many use cases, but you might find yourself needing to write a custom migration. If you are migrating from a different data source, be it WordPress, a CSV file, or a spreadsheet, you can write your own migrations. Or, if you are the maintainer of a contrib module that provides its own custom entity type, you could write a migration for this entity as well, so that users of your module could upgrade from the 7.x to the 8.x version.
+
+For an example of writing a custom migration from Drupal 7 to Drupal 8, see the next installment in this series, [Migrating Users from Drupal 7](/blog/migrating-users-drupal-7-to-drupal-8).
