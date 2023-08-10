@@ -1,5 +1,5 @@
-import Image from './Image';
-import { FC } from 'react';
+import Image from './Image'
+import { FC } from 'react'
 
 type FigureProps = {
   align: string

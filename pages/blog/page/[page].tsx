@@ -4,12 +4,11 @@ import ListLayout from '@/layouts/ListLayout'
 import { allCoreContent, sortedBlogPost } from 'pliny/utils/contentlayer'
 import { POSTS_PER_PAGE } from '../index'
 import { InferGetStaticPropsType } from 'next'
-import { allBlogs } from 'contentlayer/generated'
 import type { Blog } from 'contentlayer/generated'
+import { allBlogs } from 'contentlayer/generated'
 
 export const getStaticPaths = async () => {
-  const totalPosts = allBlogs
-  const totalPages = Math.ceil(totalPosts.length / POSTS_PER_PAGE)
+  const totalPages = Math.ceil(allBlogs.length / POSTS_PER_PAGE)
   const paths = Array.from({ length: totalPages }, (_, i) => ({
     params: { page: (i + 1).toString() },
   }))

@@ -34,24 +34,24 @@ It's recommended that you try the [Angular Tutorial](https://angular.io/tutorial
 
 The back-end for this app is a simple Express-based API that exposes the following endpoints:
 
-**GET /api/food**  
+**`GET /api/food`**
 Returns an array of all existing Food objects in JSON format.
 
-**GET /api/books**  
+**`GET /api/books`**
 Returns an array of all existing Book objects in JSON format.
 
-**GET /api/movies**  
+**`GET /api/movies`**
 Returns an array of all existing Movie objects in JSON format.
 
-**POST /api/food**  
+**`POST /api/food`**
 Creates a new Food object in the back-end data store. Accepts a JSON object in the request body.  
 If successful, returns a `200 OK` response, containing a JSON object representing the data as saved on the server, including the auto-numbered ID
 
-**PUT /api/food/{food_id}**  
+**`PUT /api/food/{food_id}`**
 Updates an existing Food object. Accepts a JSON object in the request body.  
 If successful, returns a `200 OK` response, containing a JSON object representing the data as saved on the server.
 
-**DELETE /api/food/{food_id}**  
+**`DELETE /api/food/{food_id}`**
 Deletes an existing Food object. Does not require a response body.  
 If successful, returns a `200 OK` response, containing a JSON object representing the Food object as it existed before it was deleted.
 
