@@ -1,0 +1,56 @@
+---
+title: "Ripping Castlevania: SOTN from CD for the Randomizer"
+summary: "Not all CD ripping software can rip a Castlevania: Symphony of the Night disc image that's compatible with the sotn.io randomizer. Here's how I did it, after much trial and error."
+date: 2023-10-31T18:31:24.182Z
+draft: false
+tags:
+  - castlevania
+  - retrogaming
+---
+
+Fans of Castlevania: Symphony of the Night, and of video game randomizers in general, will probably know about the
+[SOTN randomizer](https://sotn.io/). I was eager to try it, but I ran into a blocker.
+
+I have the game (specifically, the Greatest Hits edition) on CD, and I even ripped a .iso of it long, long ago to use with Bleem! and later [ePSXe](https://www.epsxe.com/). The image worked fine with the emulators, and I've been using it for over 20 years now.
+
+But, when I tried to use the image with the randomizer, it didn't work. The CRC32 didn't match the one on [Redump](http://redump.org/disc/3379/), so the randomizer didn't recognize it as a vanilla .iso.
+
+So, how exactly does one rip the CD to use with the randomizer?
+
+### AnyBurn and ImgBurn: Didn't work 
+
+Both of these can only create a single .bin image. The CRC32 doesn't match redump. (Or each other…) 
+
+So, onto the next attempt.
+
+### MPF / DiscImageCreator: Requires specific models of CD drive 
+
+This is the "official" way to dump CDs for redump, according to [the Redump documentation](http://wiki.redump.org/index.php?title=Disc_Dumping_Guide_(MPF) ). 
+
+This only works with a few specific CD drive models. It errored when I tried it with mine. [The list of supported models is here](http://wiki.redump.org/index.php?title=DiscImageCreator:_Optical_Disc_Drive_Compatibility).
+
+### RetroArch
+
+Next, I tried ripping the disc using RetroArch (for reference, I did this on a Windows 10 machine).
+
+This finally worked. RetroArch ripped each track to a separate .bin file. The CRC32 values matched the ones on redump. 
+
+### Verifying the CRC32 
+
+Linux users can do this with the 'crc32' CLI command. 
+
+On Windows, the easiest way is with 7-zip. Open the 7-zip program and navigate to the file. Right click and choose CRC -> CRC32.
+
+### Using it with the randomizer 
+
+Go to sotn.io and choose the .bin file you created from Track 1 of the CD. You don't need any of the other tracks.
+
+That's it. I'll race you to Galamoth.
+
+(You'll probably win that race. I spend too much time farming for swords I never use.)
+
+### Reference material
+
+https://www.reddit.com/r/PlaystationClassic/comments/o3n1g4/what_cd_ripping_software_makes_multiple_bin_files/ 
+
+https://github.com/3snowp7im/SotN-Randomizer/issues/65 
