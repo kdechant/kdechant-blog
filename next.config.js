@@ -13,7 +13,7 @@ const ContentSecurityPolicy = `
   media-src 'none';
   connect-src *;
   font-src 'self';
-  frame-src giscus.app
+  frame-src 'none'
 `
 
 const securityHeaders = [
@@ -63,7 +63,15 @@ module.exports = () => {
     reactStrictMode: true,
     pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
     eslint: {
-      dirs: ['pages', 'components', 'lib', 'layouts', 'scripts'],
+      dirs: ['app', 'components', 'layouts', 'scripts'],
+    },
+    images: {
+      remotePatterns: [
+        {
+          protocol: 'https',
+          hostname: 'picsum.photos',
+        },
+      ],
     },
     async headers() {
       return [

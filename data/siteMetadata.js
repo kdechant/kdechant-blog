@@ -25,7 +25,9 @@ const siteMetadata = {
   analytics: {
     // If you want to use an analytics provider you have to add it to the
     // content security policy in the `next.config.js` file.
-    googleAnalyticsId: 'G-DHZZT0PDY7',
+    googleAnalytics: {
+      googleAnalyticsId: 'G-DHZZT0PDY7',
+    },
   },
   newsletter: {
     // supports mailchimp, buttondown, convertkit, klaviyo, revue, emailoctopus

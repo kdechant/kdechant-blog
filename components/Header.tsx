@@ -4,6 +4,7 @@ import Logo from '@/data/logo.svg'
 import Link from './Link'
 import MobileNav from './MobileNav'
 import ThemeSwitch from './ThemeSwitch'
+import SearchButton from './SearchButton'
 
 const Header = () => {
   return (
@@ -24,18 +25,19 @@ const Header = () => {
           </div>
         </Link>
       </div>
-      <div className="flex items-center text-base leading-5">
-        <div className="hidden sm:block">
-          {headerNavLinks.map((link) => (
+      <div className="flex items-center space-x-4 leading-5 sm:space-x-6">
+        {headerNavLinks
+          .filter((link) => link.href !== '/')
+          .map((link) => (
             <Link
               key={link.title}
               href={link.href}
-              className="p-1 font-medium text-gray-900 dark:text-gray-100 sm:p-4"
+              className="hidden font-medium text-gray-900 dark:text-gray-100 sm:block"
             >
               {link.title}
             </Link>
           ))}
-        </div>
+        <SearchButton />
         <ThemeSwitch />
         <MobileNav />
       </div>
